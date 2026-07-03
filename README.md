@@ -2,9 +2,10 @@
 
 **Evidence-gated authoring for research papers & patents.** Veridraft turns *verified claims +
 admissible evidence + real results* into a paper or a US-utility-patent draft — and refuses to
-let anything ship that it cannot ground. It wraps an AI writing engine (PaperOrchestra) and an
-AI reviewer with the governance the model does **not** provide: an evidence gate, a patent-first
-interlock, fail-closed confidentiality, submission-readiness, and a tamper-evident audit ledger.
+let anything ship that it cannot ground. It is the **governance harness** — an evidence gate, a
+patent-first interlock, fail-closed confidentiality, submission-readiness, an AI reviewer, and a
+tamper-evident audit ledger — **that wraps a writing engine**; it does not reimplement the AI
+author. See **[What's in the box vs what you connect](#whats-in-the-box-vs-what-you-connect)**.
 
 > **No claim ships without a warrant.** Generated text is never evidence; every drafted claim
 > traces to a typed, resolvable artifact, and the tool would rather refuse than fabricate.
@@ -23,6 +24,20 @@ up, cite work it didn't verify, disclose a patentable invention before you file,
 internal codename into a public PDF. Veridraft is the **harness around the engine** that makes
 those failures structurally impossible — or at least loud, audited, and fail-closed.
 
+## What's in the box vs what you connect
+
+Veridraft is the **governance + wiring**, not the AI author. Document generation comes in two tiers:
+
+| Tier | Engine (in this repo) | Produces | Needs |
+|---|---|---|---|
+| **Self-contained (default)** | `minimal-latex` (paper), `minimal-patent` (patent) | A real, openable, **deterministically templated** PDF assembled from your gated claims — a valid document *skeleton* (patent: independent method/system/CRM claims + a dependent ladder + spec + abstract), fully governed. Not AI-authored prose. | **Nothing** — Python stdlib only, offline. |
+| **AI-quality (opt-in)** | `paperorchestra` (paper), `patent-llm` (patent) — adapters + the backend-agnostic runner in [`paperorchestra/`](paperorchestra/) | Full AI-written manuscripts (PaperOrchestra's 5-agent pipeline: outline → plotting → verified lit-review → section-writing → refinement). | (1) an **LLM backend** you configure (self-hosted OSS API / claude-code / openclaw / codex) **and** (2) the **PaperOrchestra skills**, which are a **separate component** (read from `skills_dir`, default `~/.claude/skills`) and are **NOT vendored here**. |
+
+So: **`python -m veridraft run …` / `draft-patent` work out of the box and emit a governed PDF**,
+but the *high-quality AI writing* is an external engine Veridraft drives, not code shipped in this
+repo. Every governance guarantee below holds identically for both tiers — the harness is what this
+project is.
+
 ## What it guarantees
 
 | Gate | Guarantee |
@@ -31,7 +46,7 @@ those failures structurally impossible — or at least loud, audited, and fail-c
 | **Patent-first interlock** | A patent-sensitive (future-device) claim is HELD by default; a paper cannot disclose it without a human `release-interlock` (after filing). The hold is durable — it survives a bundle re-import, a claim relabel, and a dropped-claim re-import (fail-closed). |
 | **Confidentiality (egress)** | `boundary`(public⊂internal⊂confidential) × `visibility`(team\|private), fail-closed. Two-point enforcement: ingest classify + egress `decide()` + a redaction re-sweep over the actual PDF text. An image-only/empty-text PDF is refused (can't verify it); the audience is clamped to the sink's tier. |
 | **Submission-readiness** | Maps a venue's LLM policy → the required AI-use **disclosure** text; **hard-blocks** publish to venues that *prohibit* AI-generated text until a human signs off — and the sign-off is bound to the exact draft, so a re-draft can't reuse it. Never helps evade an AI ban. |
-| **AI reviewer** | A venue-specific simulated peer review + autoraters → quality score, verdict, ranked weaknesses, improvement guidance. Stub/placeholder reviews are rejected. |
+| **Review governance** | A deterministic review-readiness checklist (claims gated, PDF present, labels) + a venue-rubric registry (`venues.json`) + a review-record contract with **stub/placeholder rejection**. The AI peer-review *panel* itself is an external LLM engine you drive (like the writing engine); the harness records, validates, and audits its output. |
 | **Audit ledger** | Hash-chained lifecycle events (JSON-encoded, HEAD-anchored) + a state-consistency check, so tampering with a state, truncating the log, or deleting the anchor is detectable. |
 
 ## Patent path
