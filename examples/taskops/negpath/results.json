@@ -1,0 +1,340 @@
+{
+  "generatedAt": "2026-07-02T05:14:01.867854+00:00",
+  "environment": {
+    "taskopsBin": "/home/jimmy/.npm-global/bin/taskops",
+    "taskopsRealPath": "/home/jimmy/.openclaw/workspace/taskops/cli/bin/taskops.js",
+    "taskopsPackageVersion": "0.5.13",
+    "taskopsVersionRaw": [
+      "TaskOps CLI",
+      ""
+    ],
+    "node": "v25.6.1"
+  },
+  "mechanisms": {
+    "M2": {
+      "cases": 8,
+      "passed": 8
+    },
+    "Eq1": {
+      "cases": 3,
+      "passed": 3
+    },
+    "M8": {
+      "cases": 3,
+      "passed": 3
+    }
+  },
+  "overall": {
+    "cases": 14,
+    "passed": 14
+  },
+  "cases": [
+    {
+      "id": "M2-unknowns",
+      "mechanism": "M2",
+      "description": "Explicit runnable + declared unknowns must downgrade to needs_exploration",
+      "commands": [
+        "taskops classify-runnable /home/jimmy/repos/ai-workbench/products/veridraft/impl/examples/taskops/negpath/_build/m2-work t-unknowns --json"
+      ],
+      "expected": "runReadiness downgraded runnable -> needs_exploration; source explicit_with_consistency_downgrade",
+      "actual": {
+        "runReadiness": "needs_exploration",
+        "source": "explicit_with_consistency_downgrade",
+        "originalRunReadiness": "runnable",
+        "nextAction": "create_exploratory_run",
+        "consistencyIssues": [
+          {
+            "code": "explicit_runnable_partial_understanding",
+            "severity": "warning",
+            "downgradeTo": null,
+            "message": "explicit runReadiness 'runnable' has partial understanding; keep only with concrete scope or acceptance evidence"
+          },
+          {
+            "code": "explicit_runnable_declared_unknowns",
+            "severity": "error",
+            "downgradeTo": "needs_exploration",
+            "message": "explicit runReadiness 'runnable' conflicts with declared unknowns"
+          }
+        ]
+      },
+      "pass": true
+    },
+    {
+      "id": "M2-unknown-understanding",
+      "mechanism": "M2",
+      "description": "Explicit runnable + understandingLevel: unknown must downgrade to needs_exploration",
+      "commands": [
+        "taskops classify-runnable /home/jimmy/repos/ai-workbench/products/veridraft/impl/examples/taskops/negpath/_build/m2-work t-unknown-understanding --json"
+      ],
+      "expected": "runReadiness downgraded runnable -> needs_exploration; source explicit_with_consistency_downgrade",
+      "actual": {
+        "runReadiness": "needs_exploration",
+        "source": "explicit_with_consistency_downgrade",
+        "originalRunReadiness": "runnable",
+        "nextAction": "create_exploratory_run",
+        "consistencyIssues": [
+          {
+            "code": "explicit_runnable_unknown_understanding",
+            "severity": "error",
+            "downgradeTo": "needs_exploration",
+            "message": "explicit runReadiness 'runnable' conflicts with understandingLevel 'unknown'"
+          }
+        ]
+      },
+      "pass": true
+    },
+    {
+      "id": "M2-blocked",
+      "mechanism": "M2",
+      "description": "Explicit runnable + status: blocked must downgrade to blocked",
+      "commands": [
+        "taskops classify-runnable /home/jimmy/repos/ai-workbench/products/veridraft/impl/examples/taskops/negpath/_build/m2-work t-blocked --json"
+      ],
+      "expected": "runReadiness downgraded runnable -> blocked; source explicit_with_consistency_downgrade",
+      "actual": {
+        "runReadiness": "blocked",
+        "source": "explicit_with_consistency_downgrade",
+        "originalRunReadiness": "runnable",
+        "nextAction": "resolve_blocker",
+        "consistencyIssues": [
+          {
+            "code": "explicit_runnable_blocked_status",
+            "severity": "error",
+            "downgradeTo": "blocked",
+            "message": "explicit runReadiness 'runnable' conflicts with blocked task status"
+          }
+        ]
+      },
+      "pass": true
+    },
+    {
+      "id": "M2-lowconf",
+      "mechanism": "M2",
+      "description": "Explicit runnable + low execution/decomposition confidence must downgrade to needs_exploration",
+      "commands": [
+        "taskops classify-runnable /home/jimmy/repos/ai-workbench/products/veridraft/impl/examples/taskops/negpath/_build/m2-work t-lowconf --json"
+      ],
+      "expected": "runReadiness downgraded runnable -> needs_exploration; source explicit_with_consistency_downgrade",
+      "actual": {
+        "runReadiness": "needs_exploration",
+        "source": "explicit_with_consistency_downgrade",
+        "originalRunReadiness": "runnable",
+        "nextAction": "create_exploratory_run",
+        "consistencyIssues": [
+          {
+            "code": "explicit_runnable_low_executionConfidence",
+            "severity": "error",
+            "downgradeTo": "needs_exploration",
+            "message": "explicit runReadiness 'runnable' conflicts with low executionConfidence"
+          },
+          {
+            "code": "explicit_runnable_low_decompositionConfidence",
+            "severity": "error",
+            "downgradeTo": "needs_exploration",
+            "message": "explicit runReadiness 'runnable' conflicts with low decompositionConfidence"
+          }
+        ]
+      },
+      "pass": true
+    },
+    {
+      "id": "M2-guarded-incomplete",
+      "mechanism": "M2",
+      "description": "Explicit runnable + incomplete guarded acceptance must downgrade to blocked",
+      "commands": [
+        "taskops classify-runnable /home/jimmy/repos/ai-workbench/products/veridraft/impl/examples/taskops/negpath/_build/m2-work t-guarded-incomplete --json"
+      ],
+      "expected": "runReadiness downgraded runnable -> blocked; source explicit_with_consistency_downgrade",
+      "actual": {
+        "runReadiness": "blocked",
+        "source": "explicit_with_consistency_downgrade",
+        "originalRunReadiness": "runnable",
+        "nextAction": "resolve_blocker",
+        "consistencyIssues": [
+          {
+            "code": "explicit_runnable_incomplete_guarded_acceptance",
+            "severity": "error",
+            "downgradeTo": "blocked",
+            "message": "explicit runReadiness 'runnable' with guarded acceptance is missing concrete acceptance: expectedOutcome, requiredArtifacts or requiredChecks"
+          }
+        ]
+      },
+      "pass": true
+    },
+    {
+      "id": "M2-exploration-flag",
+      "mechanism": "M2",
+      "description": "Explicit runnable + needsExploration flag must downgrade to needs_exploration",
+      "commands": [
+        "taskops classify-runnable /home/jimmy/repos/ai-workbench/products/veridraft/impl/examples/taskops/negpath/_build/m2-work t-exploration-flag --json"
+      ],
+      "expected": "runReadiness downgraded runnable -> needs_exploration; source explicit_with_consistency_downgrade",
+      "actual": {
+        "runReadiness": "needs_exploration",
+        "source": "explicit_with_consistency_downgrade",
+        "originalRunReadiness": "runnable",
+        "nextAction": "create_exploratory_run",
+        "consistencyIssues": [
+          {
+            "code": "explicit_runnable_exploration_flag",
+            "severity": "error",
+            "downgradeTo": "needs_exploration",
+            "message": "explicit runReadiness 'runnable' conflicts with explorationNeeded/needsExploration"
+          }
+        ]
+      },
+      "pass": true
+    },
+    {
+      "id": "M2-control-clean",
+      "mechanism": "M2",
+      "description": "genuinely runnable task stays runnable",
+      "commands": [
+        "taskops classify-runnable /home/jimmy/repos/ai-workbench/products/veridraft/impl/examples/taskops/negpath/_build/m2-work t-clean --json"
+      ],
+      "expected": "stays runnable; source explicit; no consistency issues",
+      "actual": {
+        "runReadiness": "runnable",
+        "source": "explicit",
+        "consistencyIssues": []
+      },
+      "pass": true
+    },
+    {
+      "id": "M2-control-guarded-complete",
+      "mechanism": "M2",
+      "description": "runnable + COMPLETE guarded acceptance stays runnable (no false downgrade)",
+      "commands": [
+        "taskops classify-runnable /home/jimmy/repos/ai-workbench/products/veridraft/impl/examples/taskops/negpath/_build/m2-work t-guarded-complete --json"
+      ],
+      "expected": "stays runnable; source explicit; no consistency issues",
+      "actual": {
+        "runReadiness": "runnable",
+        "source": "explicit",
+        "consistencyIssues": []
+      },
+      "pass": true
+    },
+    {
+      "id": "Eq1-control",
+      "mechanism": "Eq1",
+      "description": "Fully EoW-covered work with no residual nodes must report complete",
+      "commands": [
+        "taskops summary /home/jimmy/repos/ai-workbench/products/veridraft/impl/examples/taskops/negpath/_build/eq1-control"
+      ],
+      "expected": "Work completion: complete",
+      "actual": {
+        "Work completion": "complete",
+        "Structural closure": "complete",
+        "Waiting delegations": "0",
+        "Open blockers": "0"
+      },
+      "pass": true
+    },
+    {
+      "id": "Eq1-waiting",
+      "mechanism": "Eq1",
+      "description": "Residual waiting/delegated run node must block completion",
+      "commands": [
+        "taskops summary /home/jimmy/repos/ai-workbench/products/veridraft/impl/examples/taskops/negpath/_build/eq1-waiting"
+      ],
+      "expected": "Work completion: open AND Waiting delegations: 1",
+      "actual": {
+        "Work completion": "open",
+        "Structural closure": "open",
+        "Waiting delegations": "1",
+        "Open blockers": "0"
+      },
+      "pass": true
+    },
+    {
+      "id": "Eq1-blocked",
+      "mechanism": "Eq1",
+      "description": "Residual blocked run node must block completion",
+      "commands": [
+        "taskops summary /home/jimmy/repos/ai-workbench/products/veridraft/impl/examples/taskops/negpath/_build/eq1-blocked"
+      ],
+      "expected": "Work completion: open AND Open blockers: 1",
+      "actual": {
+        "Work completion": "open",
+        "Structural closure": "open",
+        "Waiting delegations": "0",
+        "Open blockers": "1"
+      },
+      "pass": true
+    },
+    {
+      "id": "M8-control",
+      "mechanism": "M8",
+      "description": "Valid executed EoW + consistent queue: no manual/queue claim-safety flag (NOTE claimSafe stays false via structural_complete_unapproved policy gate)",
+      "commands": [
+        "taskops queue sync /home/jimmy/repos/ai-workbench/products/veridraft/impl/examples/taskops/negpath/_build/m8-control --json",
+        "taskops audit /home/jimmy/repos/ai-workbench/products/veridraft/impl/examples/taskops/negpath/_build/m8-control --json"
+      ],
+      "expected": "no manual_attestation_present, no closed_markdown_active_queue_row; manualEowCount 0",
+      "actual": {
+        "claimSafe": false,
+        "manualEowCount": 0,
+        "closureState": "structurally_complete_unapproved",
+        "issueCodes": [
+          "objective_not_marked_complex",
+          "structural_complete_unapproved"
+        ]
+      },
+      "pass": true
+    },
+    {
+      "id": "M8-manual",
+      "mechanism": "M8",
+      "description": "Manual/attested EoW presented as closed must be flagged (claimSafe=false)",
+      "commands": [
+        "taskops audit /home/jimmy/repos/ai-workbench/products/veridraft/impl/examples/taskops/negpath/_build/m8-manual --json",
+        "taskops audit <work> --strict"
+      ],
+      "expected": "manual_attestation_present flagged; claimSafe=false; strict exit!=0",
+      "actual": {
+        "claimSafe": false,
+        "manualEowCount": 3,
+        "closureState": "manual_attested_complete",
+        "issueCodes": [
+          "objective_not_marked_complex",
+          "manual_attestation_present",
+          "structural_complete_unapproved",
+          "queue_projection_missing"
+        ],
+        "strictExitCode": 1
+      },
+      "pass": true
+    },
+    {
+      "id": "M8-queue",
+      "mechanism": "M8",
+      "description": "Closed markdown task with active/pending queue row must be flagged",
+      "commands": [
+        "taskops queue sync /home/jimmy/repos/ai-workbench/products/veridraft/impl/examples/taskops/negpath/_build/m8-queue --json",
+        "sqlite UPDATE queue_items SET status='active' WHERE task_id='task-a'",
+        "taskops audit /home/jimmy/repos/ai-workbench/products/veridraft/impl/examples/taskops/negpath/_build/m8-queue --json"
+      ],
+      "expected": "closed_markdown_active_queue_row flagged",
+      "actual": {
+        "mutatedRows": 1,
+        "claimSafe": false,
+        "issueCodes": [
+          "objective_not_marked_complex",
+          "structural_complete_unapproved",
+          "closed_markdown_active_queue_row"
+        ],
+        "queueIssueMessage": "1 closed markdown task(s) still have active/pending queue rows."
+      },
+      "pass": true
+    }
+  ],
+  "findings": [
+    "M2: all six contradiction signals (unknowns, unknown understanding, blocked status, low confidence, incomplete guarded acceptance, exploration flag) downgrade an explicit runnable; both positive controls stay runnable.",
+    "Eq1: a residual waiting/delegated or blocked run node flips 'Work completion' from complete to open; full EoW coverage reports complete.",
+    "M8: manual_verified/manual_close EoW -> manual_attestation_present + claimSafe=false (strict exit=1); a closed markdown task with an active queue row -> closed_markdown_active_queue_row.",
+    "NOTE (honest caveat, not a failure): even a structurally complete, non-manual, queue-consistent work reports claimSafe=false with 'structural_complete_unapproved' because policy-approved closure requires approved review-evidence hashes. That approved-review path cannot be produced via the no-LLM / dry-run constraint, so the M8 control PASS is gate-scoped (no manual/queue flag) rather than claimSafe=true.",
+    "OBSERVATION: `taskops --version` prints a banner + usage, not a semantic version string; the package.json version (0.5.13) is the real identifier.",
+    "OBSERVATION: the shipped canonical fixture's EoW-closed-but-status-active task makes `queue sync` write an 'active' row that `audit` then flags as closed_markdown_active_queue_row, so this battery uses its own base work (terminal tasks status: done) to get a clean queue control."
+  ]
+}

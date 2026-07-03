@@ -1,0 +1,8 @@
+{
+  "name": "neurips-paper",
+  "min_evidence_by_type": { "P1": 1, "P2": 1, "P3": 2 },
+  "require_result_ref_by_type": { "P1": true, "P2": false, "P3": false },
+  "patent_sensitive_types": ["P3"],
+  "non_relaxable": { "generated_text_is_evidence": false },
+  "require_results": true
+}

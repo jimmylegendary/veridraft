@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "veridraft"
+version = "0.0.1"
+description = "Veridraft — Paper & Patent Writing Harness (v1 vertical slice)"
+readme = "README.md"
+requires-python = ">=3.10"
+# The v1 slice runs on the Python standard library only — no runtime dependencies.
+dependencies = []
+
+# Optional: the local Binoculars AI-text detector. These deps are NOT imported by
+# the veridraft core — they live in a SEPARATE venv (~/.veridraft-detector-venv) that the
+# `binoculars-local` adapter shells out to. Installed here only if you want them in
+# THIS environment; the recommended path is the standalone CPU venv (see README).
+[project.optional-dependencies]
+detector = ["torch", "transformers"]
+
+[project.scripts]
+veridraft = "veridraft.cli:main"
+
+[tool.setuptools]
+packages = [
+  "veridraft",
+  "veridraft.core",
+  "veridraft.ports",
+  "veridraft.adapters",
+]
+
+[tool.setuptools.package-data]
+veridraft = ["profiles/*.json", "schema/*.cue", "venues.json", "scripts/*.py", "detector_calibration.json"]

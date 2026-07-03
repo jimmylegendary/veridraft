@@ -1,0 +1,35 @@
+{
+  "_note": "Portable PaperOrchestra backend config. Pick ONE backend; the runner dispatches every step to it. Secrets can use `env:VARNAME`.",
+
+  "backend": "api",
+  "//backend": "one of: api | openclaw | claude-code | codex",
+
+  "base_url": "http://localhost:8000/v1",
+  "api_key": "env:LLM_API_KEY",
+  "model": "Qwen/Qwen2.5-72B-Instruct",
+  "api_driver": "opencode",
+  "//api_driver": "opencode | aider — the OSS agent CLI that gives the OpenAI-compatible model its tools",
+
+  "vision_model": null,
+  "//vision_model": "a VLM for the plotting critique loop + section-writing multimodal call; null => those degrade to text-only",
+  "image_model": null,
+  "//image_model": "optional text->image model for generated diagrams; null => matplotlib-only figures",
+
+  "web_search": "none",
+  "//web_search": "how the literature agent discovers candidates: builtin (host tool) | searxng | serper | none (degraded: user-supplied refs.bib only)",
+  "s2_api_key": null,
+  "//s2_api_key": "optional Semantic Scholar API key to raise the 1 QPS public limit",
+
+  "skills_dir": "~/.claude/skills",
+  "//skills_dir": "where the paper-orchestra + sub-skill folders live (wherever you received them)",
+
+  "parallel_2_3": true,
+  "//parallel_2_3": "run plotting (step 2) and lit-review (step 3) concurrently; set false on single-session backends",
+  "step_timeout_seconds": 2400,
+
+  "_backend_examples": {
+    "openclaw": { "backend": "openclaw", "agent": "taskops-bench", "model": "openai/gpt-5.5" },
+    "claude-code": { "backend": "claude-code", "model": "claude-sonnet-5" },
+    "self-hosted-vllm": { "backend": "api", "base_url": "http://localhost:8000/v1", "api_key": "env:LLM_API_KEY", "model": "Qwen/Qwen2.5-72B-Instruct", "api_driver": "opencode", "vision_model": "Qwen/Qwen2.5-VL-7B-Instruct" }
+  }
+}

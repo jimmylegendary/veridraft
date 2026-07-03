@@ -1,0 +1,68 @@
+"""PatentEngineAdapter: `patent-llm` — LLM-assisted drafter over a configurable backend.
+
+Higher-quality than the deterministic `minimal-patent`: an LLM drafts (1) independent
+claims, (2) a dependent-claim ladder, (3) the specification with antecedent basis, (4)
+abstract, (5) drawing refs, from the assembled invention disclosure — then emits
+open_items. Like the `paperorchestra` writing engine, it invokes a configured runner
+(`patent_command`) so the backend (self-hosted OSS API / openclaw / claude / codex) is a
+config choice, not code. `needs_human=True` is fixed; it NEVER files.
+
+Config example:
+    [adapters.patent_engine.patent-llm]
+    patent_command = ["python3", "/abs/paperorchestra/run.py", "--config", "backend.json",
+                      "--workspace", "{workspace}", "--mode", "patent"]
+"""
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+from ..core.models import EngineOutput
+from ..core.registry import register
+from ..ports import AdapterCapabilities, HealthStatus, Maturity
+
+
+@register(port="patent_engine", id="patent-llm")
+class PatentLlmEngineAdapter:
+    capabilities = AdapterCapabilities(
+        port="patent_engine", id="patent-llm", version="0.1.0",
+        provides=("patent_spec", "patent_claims", "abstract"),
+        features=frozenset({"llm", "needs-human", "backend-configurable"}),
+        requires_config=("patent_command",), maturity=Maturity.V1,
+    )
+    needs_human = True
+
+    def __init__(self, config: dict | None = None):
+        self.config = config or {}
+        self.patent_command = self.config.get("patent_command")
+
+    def health(self) -> HealthStatus:
+        if not self.patent_command:
+            return HealthStatus.unhealthy(
+                "patent-llm needs `patent_command` (a backend runner over the workspace); "
+                "use engine `minimal-patent` for the offline deterministic draft")
+        return HealthStatus.healthy("patent-llm runner configured")
+
+    def screen(self, claim_ids: list[str]) -> dict:
+        return {}  # harness owns the patentability screen
+
+    def draft_patent(self, workspace: str) -> EngineOutput:
+        if not self.patent_command:
+            raise RuntimeError("patent-llm: `patent_command` not configured")
+        cmd = [part.replace("{workspace}", workspace) for part in self.patent_command]
+        proc = subprocess.run(cmd, cwd=workspace, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(f"patent-llm runner failed (exit {proc.returncode}): "
+                               f"{proc.stderr.strip()[:500]}")
+        final = Path(workspace) / "final"
+        tex, pdf = final / "patent.tex", final / "patent.pdf"
+        open_items = []
+        oi = final / "open_items.json"
+        if oi.exists():
+            open_items = json.loads(oi.read_text(encoding="utf-8"))
+        return EngineOutput(
+            engine_adapter="patent-llm", workspace_path=workspace,
+            paper_tex_path=str(tex) if tex.exists() else None,
+            paper_pdf_path=str(pdf) if pdf.exists() else None,
+            scores={}, provenance={"open_items": open_items, "needs_human": True, "type": "patent"})

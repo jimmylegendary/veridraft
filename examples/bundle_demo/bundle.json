@@ -1,0 +1,69 @@
+{
+  "bundle_id": "demo-2026-07",
+  "boundary": "public_safe",
+  "provenance_manifest": {
+    "exported_by": "caw-02",
+    "note": "demo fixture — not a real signed CAW-02 export; digest unverified in v1"
+  },
+  "claims": [
+    {
+      "claim_id": "c1",
+      "type": "P1",
+      "boundary": "public",
+      "visibility": "team",
+      "statement": "Our scheduling method reduces p99 serving latency versus the baseline.",
+      "result_refs": ["r1"],
+      "evidence": [
+        {
+          "id": "e1",
+          "kind": "caw02_evidence",
+          "ref": "caw02://claim/c1/evidence/e1",
+          "trust": 0.92
+        }
+      ]
+    },
+    {
+      "claim_id": "c2",
+      "type": "P2",
+      "boundary": "public",
+      "visibility": "team",
+      "statement": "The proposed tool integrates with the existing serving stack without code changes.",
+      "result_refs": [],
+      "evidence": [
+        {
+          "id": "e2",
+          "kind": "caw02_evidence",
+          "ref": "caw02://claim/c2/evidence/e2",
+          "trust": 0.85
+        }
+      ]
+    },
+    {
+      "claim_id": "c3",
+      "type": "P3",
+      "boundary": "public",
+      "visibility": "team",
+      "statement": "A future accelerator design will further cut energy per token.",
+      "result_refs": [],
+      "evidence": [
+        {
+          "id": "e3",
+          "kind": "generated_text",
+          "ref": "",
+          "note": "LLM-written rationale — must be rejected as evidence"
+        }
+      ]
+    }
+  ],
+  "results": [
+    {
+      "result_id": "r1",
+      "description": "latency benchmark from a CAW-01 run",
+      "metrics": [
+        { "name": "p99_latency_baseline", "value": 128, "unit": "ms" },
+        { "name": "p99_latency_ours", "value": 92, "unit": "ms" },
+        { "name": "throughput", "value": 14200, "unit": "tok/s" }
+      ]
+    }
+  ]
+}

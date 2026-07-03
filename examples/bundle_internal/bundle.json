@@ -1,0 +1,25 @@
+{
+  "bundle_id": "demo-internal",
+  "boundary": "internal",
+  "provenance_manifest": { "exported_by": "caw-02", "note": "L6 demo — internal claim must not leave the building" },
+  "claims": [
+    {
+      "claim_id": "ic1",
+      "type": "P1",
+      "boundary": "internal",
+      "visibility": "team",
+      "statement": "An internal-only optimization improves throughput on the internal cluster.",
+      "result_refs": ["ir1"],
+      "evidence": [
+        { "id": "ie1", "kind": "caw02_evidence", "ref": "caw02://claim/ic1/evidence/ie1", "trust": 0.9 }
+      ]
+    }
+  ],
+  "results": [
+    {
+      "result_id": "ir1",
+      "description": "internal cluster benchmark",
+      "metrics": [{ "name": "throughput", "value": 21000, "unit": "tok/s" }]
+    }
+  ]
+}

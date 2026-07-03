@@ -1,0 +1,88 @@
+{
+  "_note": "Venue registry: (1) AI-reviewer rubric/bar per venue, (2) LLM-use policy for the submission-readiness op. `policy_class` ∈ allowed|disclosure|prohibited. The submission-readiness op generates the required disclosure text and HARD-BLOCKS publish for `prohibited` venues (human sign-off required) — it never helps evade an AI ban. Thresholds are RISK proxies, not proof. New venue / policy change = edit this config.",
+  "domains": {
+    "se-agents": ["aiware", "icse", "icse-nier"],
+    "ai-system-architecture": ["mlsys", "isca"],
+    "modeling": ["neurips", "aaai", "science"]
+  },
+  "disclosure_templates": {
+    "methods": "During the preparation of this work the authors used {tool} to {purpose}. All content was reviewed and edited by the authors, who take full responsibility for the accuracy and integrity of the work.",
+    "acknowledgments": "The authors used {tool} to {purpose}. The authors reviewed and edited all resulting text and take full responsibility for the content.",
+    "declaration": "Declaration of generative AI in scientific writing: during the preparation of this work the authors used {tool} to {purpose}. After using this tool the authors reviewed and edited the content as needed and take full responsibility for the content of the publication.",
+    "body_and_form": "This paper's preparation used {tool} to {purpose}; the same is disclosed in the submission form. The authors reviewed and edited all content and take full responsibility for it."
+  },
+  "venues": {
+    "icse": {
+      "name": "icse", "full_name": "ICSE — Intl. Conference on Software Engineering (Technical/Research main track)",
+      "domain": "se-agents", "track": "main", "empirical_bar": "high",
+      "recommendation_scale": "-3..+3 (strong reject .. strong accept)",
+      "review_axes": ["novelty", "significance", "soundness", "evaluation", "presentation", "related_work", "reproducibility"],
+      "values": ["rigorous empirical evaluation", "baselines + ablations", "reproducibility / artifact"],
+      "notes": "A comparative-reliability claim requires a MEASURED study; a functional-only smoke test does not clear the main-track bar.",
+      "policy": { "policy_class": "disclosure", "screening": "similarity", "ai_detector_screening": false, "disclosure_required": true, "disclosure_location": "acknowledgments", "similarity_threshold": "~30%", "source": "ACM/IEEE authorship + generative-AI policy" }
+    },
+    "aiware": {
+      "name": "aiware", "full_name": "AIware — ACM Intl. Conf. on AI Foundation Models and Software Engineering",
+      "domain": "se-agents", "track": "research", "empirical_bar": "medium",
+      "recommendation_scale": "-3..+3",
+      "review_axes": ["novelty", "vision", "significance", "soundness", "evaluation", "presentation", "related_work"],
+      "values": ["novel AI-for-SE systems/design", "practical relevance to LLM dev workflows", "credible evaluation OR a well-specified protocol", "clear vision"],
+      "notes": "Design/systems contributions for AI dev agents are in scope; a well-motivated design + honest functional validation + a credible protocol is competitive here.",
+      "policy": { "policy_class": "disclosure", "screening": "none", "ai_detector_screening": false, "disclosure_required": true, "disclosure_location": "acknowledgments", "similarity_threshold": null, "source": "ACM generative-AI policy" }
+    },
+    "icse-nier": {
+      "name": "icse-nier", "full_name": "ICSE NIER — New Ideas and Emerging Results (short paper, ~4pp)",
+      "domain": "se-agents", "track": "new-ideas", "empirical_bar": "low",
+      "recommendation_scale": "-3..+3",
+      "review_axes": ["novelty", "potential_impact", "soundness_of_idea", "clarity"],
+      "values": ["a novel, promising idea", "clear motivation", "preliminary/functional evidence is acceptable"],
+      "notes": "A full reliability study is NOT required; values a promising idea + preliminary evidence. Requires cutting to short-paper length.",
+      "policy": { "policy_class": "disclosure", "screening": "similarity", "ai_detector_screening": false, "disclosure_required": true, "disclosure_location": "acknowledgments", "similarity_threshold": "~30%", "source": "ACM/IEEE policy" }
+    },
+    "mlsys": {
+      "name": "mlsys", "full_name": "MLSys — Conference on Machine Learning and Systems",
+      "domain": "ai-system-architecture", "track": "research", "empirical_bar": "high",
+      "recommendation_scale": "reject / weak-reject / borderline / weak-accept / accept",
+      "review_axes": ["novelty", "systems_contribution", "evaluation_performance", "soundness", "reproducibility", "presentation"],
+      "values": ["measured systems performance (latency / throughput / efficiency / scalability)", "real workloads", "artifact"],
+      "notes": "Expects measured systems performance on real workloads; strong fit for the serving-scheduling-style paper; high empirical bar.",
+      "policy": { "policy_class": "disclosure", "screening": "none", "ai_detector_screening": false, "disclosure_required": true, "disclosure_location": "methods", "similarity_threshold": null, "source": "ML venue disclosure norm" }
+    },
+    "isca": {
+      "name": "isca", "full_name": "ISCA — International Symposium on Computer Architecture",
+      "domain": "ai-system-architecture", "track": "main", "empirical_bar": "high",
+      "recommendation_scale": "reject / weak-reject / borderline / weak-accept / accept",
+      "review_axes": ["novelty", "architecture_insight", "evaluation_sim_or_measurement", "soundness", "presentation"],
+      "values": ["quantitative architecture evaluation (cycle-accurate sim or silicon)", "design-space analysis"],
+      "notes": "Hardware/architecture; requires quantitative architectural evaluation (simulation or measurement).",
+      "policy": { "policy_class": "disclosure", "screening": "similarity", "ai_detector_screening": false, "disclosure_required": true, "disclosure_location": "acknowledgments", "similarity_threshold": "~30%", "source": "ACM/IEEE policy" }
+    },
+    "neurips": {
+      "name": "neurips", "full_name": "NeurIPS — Conference on Neural Information Processing Systems",
+      "domain": "modeling", "track": "main", "empirical_bar": "high",
+      "recommendation_scale": "1..10 + accept/reject",
+      "review_axes": ["originality", "significance", "technical_quality", "experiments", "clarity", "related_work"],
+      "values": ["strong empirical results on standard benchmarks", "ablations", "theoretical grounding where relevant"],
+      "notes": "Modeling contributions need benchmark results + ablations; high empirical bar.",
+      "policy": { "policy_class": "disclosure", "screening": "none", "ai_detector_screening": false, "disclosure_required": true, "disclosure_location": "methods", "similarity_threshold": null, "source": "NeurIPS LLM policy (disclose if core; no author-side AI detector)" }
+    },
+    "aaai": {
+      "name": "aaai", "full_name": "AAAI — AAAI Conference on Artificial Intelligence",
+      "domain": "modeling", "track": "main", "empirical_bar": "high",
+      "recommendation_scale": "1..10 + accept/reject",
+      "review_axes": ["originality", "significance", "technical_quality", "experiments", "clarity"],
+      "values": ["strong results", "clarity"],
+      "notes": "Prohibits presenting LLM-generated text as the authors' own writing; editing/polishing allowed. Generated text is admissible only as an object of study.",
+      "policy": { "policy_class": "prohibited", "screening": "none", "ai_detector_screening": false, "disclosure_required": true, "disclosure_location": "acknowledgments", "similarity_threshold": null, "source": "AAAI policy: LLM-generated text as one's own is prohibited (polishing OK)" }
+    },
+    "science": {
+      "name": "science", "full_name": "Science / AAAS journals",
+      "domain": "modeling", "track": "journal", "empirical_bar": "high",
+      "recommendation_scale": "editorial",
+      "review_axes": ["significance", "rigor", "clarity"],
+      "values": ["significance", "rigor"],
+      "notes": "Strictest: AI-generated text/figures are not permitted; undisclosed use is misconduct.",
+      "policy": { "policy_class": "prohibited", "screening": "similarity", "ai_detector_screening": false, "disclosure_required": true, "disclosure_location": "acknowledgments", "similarity_threshold": null, "source": "Science/AAAS editorial policy: no AI-generated text" }
+    }
+  }
+}

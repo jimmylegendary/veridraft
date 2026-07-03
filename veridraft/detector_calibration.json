@@ -1,0 +1,79 @@
+{
+  "detector": "binoculars-local",
+  "algorithm": "Binoculars (arXiv:2401.12070), score = logPPL(observer) / crossPPL(observer,performer)",
+  "model_pair": {
+    "observer": "Qwen/Qwen2.5-0.5B",
+    "performer": "Qwen/Qwen2.5-0.5B-Instruct"
+  },
+  "direction": "high-score-is-machine",
+  "note": "Locally calibrated for a Qwen2.5-0.5B base/instruct pair on a TINY 6-human + 6-machine corpus. HONEST CAVEATS: (1) This 0.5B pair is much weaker than the paper's Falcon-7B (threshold 0.9015) \u2014 treat every output as a RISK proxy, never a verdict. (2) The direction is INVERTED vs the paper: here machine text scores HIGHER, because a tiny observer finds novel technical AI prose more perplexing than memorized public-domain human classics. (3) The measured FP below is OPTIMISTIC: famous classics are partly memorized by the models, so fresh or non-native/ESL human writing will score higher and risks being false-flagged. Detectors false-flag human writing; never use this to evade an AI-use policy.",
+  "threshold": 1.035288,
+  "margin": 0.01,
+  "measured_false_positive_rate": 0.0,
+  "measured_false_negative_rate": 0.0,
+  "separable": true,
+  "separation_gap": 0.0133,
+  "n_human": 6,
+  "n_machine": 6,
+  "human_score_range": [
+    0.6973,
+    1.0286
+  ],
+  "machine_score_range": [
+    1.0419,
+    1.1672
+  ],
+  "human_scores": {
+    "austen_pride": {
+      "score": 0.860611,
+      "n_tokens": 155
+    },
+    "shelley_frankenstein": {
+      "score": 0.952826,
+      "n_tokens": 150
+    },
+    "melville_moby": {
+      "score": 1.028639,
+      "n_tokens": 134
+    },
+    "dickens_tale": {
+      "score": 0.697273,
+      "n_tokens": 161
+    },
+    "doyle_holmes": {
+      "score": 1.012059,
+      "n_tokens": 146
+    },
+    "thoreau_walden": {
+      "score": 0.875809,
+      "n_tokens": 138
+    }
+  },
+  "machine_scores": {
+    "taskops_intro": {
+      "score": 1.073225,
+      "n_tokens": 139
+    },
+    "taskops_related": {
+      "score": 1.107108,
+      "n_tokens": 167
+    },
+    "taskops_design": {
+      "score": 1.167213,
+      "n_tokens": 149
+    },
+    "serving_intro": {
+      "score": 1.041937,
+      "n_tokens": 102
+    },
+    "serving_tail": {
+      "score": 1.087141,
+      "n_tokens": 213
+    },
+    "serving_measure": {
+      "score": 1.066602,
+      "n_tokens": 102
+    }
+  },
+  "max_tokens": 512
+}

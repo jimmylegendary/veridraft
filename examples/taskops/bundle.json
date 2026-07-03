@@ -1,0 +1,155 @@
+{
+  "bundle_id": "taskops-2026",
+  "boundary": "public",
+  "provenance_manifest": {
+    "exported_by": "caw-03",
+    "topic": "TaskOps: an agentic execution control layer that separates task decomposition (task graph) from execution reality (run graph) for AI coding agents, using a markdown-first store with SQLite as a derived queue/lease projection",
+    "note": "Aggregated from the public TaskOps repository (github://jimmylegendary/taskops @9469e2c). This is a design + functional-validation paper: every claim is backed by concrete in-repo source artifacts (design docs and CLI source), and every result encodes only real numbers found in the repo. No performance/latency/throughput benchmark exists in the repo, so none is claimed."
+  },
+  "claims": [
+    {
+      "claim_id": "c1",
+      "type": "P1",
+      "boundary": "public",
+      "visibility": "team",
+      "statement": "TaskOps introduces a dual-graph execution-control model that separates decomposition truth (a versioned task graph) from execution truth (independent run graphs) under a single top-level work container, making branch completion graph-visible through first-class End-of-Work (EoW) terminal nodes rather than implicit status fields; a work is complete only when every selected terminal task branch and required terminal run path carries EoW coverage and no waiting/delegated/blocked node remains.",
+      "result_refs": ["r_e2e"],
+      "evidence": [
+        { "id": "c1e1", "kind": "source_artifact", "ref": "github://jimmylegendary/taskops/docs/CORE_MODEL.md@9469e2c", "trust": 0.97 },
+        { "id": "c1e2", "kind": "source_artifact", "ref": "github://jimmylegendary/taskops/README.md@9469e2c", "trust": 0.9 }
+      ]
+    },
+    {
+      "claim_id": "c2",
+      "type": "P1",
+      "boundary": "public",
+      "visibility": "team",
+      "statement": "TaskOps defines run-readiness classification as an explicit pre-execution gate that labels every task with exactly one of four states (runnable, needs_decomposition, needs_exploration, blocked) before it may enter a run graph; the classifier is contradiction-aware, downgrading an explicit runReadiness: runnable to the honest state whenever conflicting metadata (declared unknowns, exploration flags, unknown understanding, low confidence, blocked status, or incomplete guarded/runner-managed acceptance) proves the task is not truly runnable.",
+      "result_refs": ["r_e2e", "r_readiness_states"],
+      "evidence": [
+        { "id": "c2e1", "kind": "source_artifact", "ref": "github://jimmylegendary/taskops/docs/RUN_READINESS.md@9469e2c", "trust": 0.97 },
+        { "id": "c2e2", "kind": "source_artifact", "ref": "github://jimmylegendary/taskops/docs/CORE_MODEL.md@9469e2c", "trust": 0.92 }
+      ]
+    },
+    {
+      "claim_id": "c3",
+      "type": "P1",
+      "boundary": "public",
+      "visibility": "team",
+      "statement": "TaskOps models unknown-unknowns and external dependencies as first-class execution reality: exploratory run nodes whose objective is understanding (search, source-reading, prototype, tool/API trial, debug, try/error) rather than delivery, and delegated-waiting run nodes (type: delegate / status: waiting) carrying delegatee, request, expected output, and timeout/on-timeout metadata that block downstream run paths until resolved, cancelled, or timed out into an explicit follow-up, instead of hiding uncertainty inside a vague blocker.",
+      "result_refs": ["r_e2e"],
+      "evidence": [
+        { "id": "c3e1", "kind": "source_artifact", "ref": "github://jimmylegendary/taskops/docs/CORE_MODEL.md@9469e2c", "trust": 0.95 },
+        { "id": "c3e2", "kind": "source_artifact", "ref": "github://jimmylegendary/taskops/docs/RUN_READINESS.md@9469e2c", "trust": 0.94 }
+      ]
+    },
+    {
+      "claim_id": "c4",
+      "type": "P1",
+      "boundary": "public",
+      "visibility": "team",
+      "statement": "TaskOps unifies delegated autonomous execution into a single daemon-backed loopback path: under --loopback self, pending self-delegate run nodes are reclaimed inline as loopback resolution nodes (opening a loopback edge and executing the delegation itself) instead of stopping with delegation_pending, while non-self delegations still pause and surface a request; each resolved delegate records an audit trail (executionMode: loopback, executedBy, resolvedBy: loopback, resolvedByRunNodeId) and every loopback is bounded by a separate --max-loopbacks budget.",
+      "result_refs": ["r_e2e"],
+      "evidence": [
+        { "id": "c4e1", "kind": "source_artifact", "ref": "github://jimmylegendary/taskops/docs/LOOPBACK_DELEGATION_REQUIREMENTS.md@9469e2c", "trust": 0.96 },
+        { "id": "c4e2", "kind": "source_artifact", "ref": "github://jimmylegendary/taskops/cli/lib-runner.js@9469e2c", "trust": 0.9 }
+      ]
+    },
+    {
+      "claim_id": "c5",
+      "type": "P1",
+      "boundary": "public",
+      "visibility": "team",
+      "statement": "TaskOps preserves decomposition history through versioned task groups and version snapshots: refactoring a task group creates a new TaskGroupVersion (append-preserving) rather than mutating prior decomposition away, and a VersionSnapshot records one selected version path across connected task groups rather than materializing every combinatorial version state, so learning-driven re-decomposition and safe restart-from-task stay auditable without history loss or combinatorial explosion.",
+      "result_refs": [],
+      "evidence": [
+        { "id": "c5e1", "kind": "source_artifact", "ref": "github://jimmylegendary/taskops/docs/CORE_MODEL.md@9469e2c", "trust": 0.95 },
+        { "id": "c5e2", "kind": "source_artifact", "ref": "github://jimmylegendary/taskops/docs/MD_FIRST_FORMAT.md@9469e2c", "trust": 0.92 }
+      ]
+    },
+    {
+      "claim_id": "c6",
+      "type": "P2",
+      "boundary": "public",
+      "visibility": "team",
+      "statement": "TaskOps stores canonical decomposition and execution state as human-readable, human-editable, append-preserving markdown with YAML frontmatter, treating SQLite (.taskops/queue.sqlite) strictly as a rebuildable, non-canonical queue/lease/report projection; derived views (canvases, summaries) are kept explicitly non-canonical, keeping the source of truth diffable and inspectable while a relational projection provides the runtime scheduling substrate.",
+      "result_refs": ["r_e2e"],
+      "evidence": [
+        { "id": "c6e1", "kind": "source_artifact", "ref": "github://jimmylegendary/taskops/docs/MD_FIRST_FORMAT.md@9469e2c", "trust": 0.96 },
+        { "id": "c6e2", "kind": "source_artifact", "ref": "github://jimmylegendary/taskops/cli/lib-queue.js@9469e2c", "trust": 0.9 }
+      ]
+    },
+    {
+      "claim_id": "c7",
+      "type": "P2",
+      "boundary": "public",
+      "visibility": "team",
+      "statement": "TaskOps implements a lease-based one-shot worker execution model: the runner/daemon projects every selected task into the SQLite queue, claims a bounded batch (decoupling queue size from concurrency via --max-parallel), and executes each claim inside a one-shot worker transaction backed by a lease and a runner_attempt keyed by markdown fingerprint; watch mode enforces a three-failure retry cap per task fingerprint, timeouts release leases, expired leases are marked stale on the next queue operation and their running attempts finalized as failed, and the daemon runs under user-systemd supervision (Restart=always) while treating all_closed as a normal (non-restart) stop.",
+      "result_refs": ["r_retry_bounds", "r_runtime_adapters"],
+      "evidence": [
+        { "id": "c7e1", "kind": "source_artifact", "ref": "github://jimmylegendary/taskops/cli/lib-daemon.js@9469e2c", "trust": 0.94 },
+        { "id": "c7e2", "kind": "source_artifact", "ref": "github://jimmylegendary/taskops/cli/lib-queue.js@9469e2c", "trust": 0.94 }
+      ]
+    },
+    {
+      "claim_id": "c8",
+      "type": "P2",
+      "boundary": "public",
+      "visibility": "team",
+      "statement": "TaskOps separates structural validation from claim-safety with a work-level audit layer (taskops audit) that keeps canonical markdown read-only yet raises broad evidence gates a per-task readiness check cannot: decomposition adequacy (complex objectives must not collapse into a shallow flat checklist), closure integrity (manual/attested EoW forces claimSafe=false), and queue-projection consistency (markdown-closed tasks with active queue rows, live leases, or running attempts, or stale selected-version rows, are flagged); strict mode exits non-zero so paper, benchmark, and release claims can gate on claim-safe completion.",
+      "result_refs": [],
+      "evidence": [
+        { "id": "c8e1", "kind": "source_artifact", "ref": "github://jimmylegendary/taskops/docs/WORK_LEVEL_AUDIT.md@9469e2c", "trust": 0.96 },
+        { "id": "c8e2", "kind": "source_artifact", "ref": "github://jimmylegendary/taskops/cli/lib-audit.js@9469e2c", "trust": 0.9 }
+      ]
+    }
+  ],
+  "results": [
+    {
+      "result_id": "r_e2e",
+      "description": "TaskOps workflow + loopback end-to-end suite (test-results/taskops-workflow-loopback-e2e.json, generated 2026-06-18). Functional validation only (no performance metrics). Covers 5 features: (1) request-to-completion autonomous decomposition (runner decomposes parent, extends snapshot, executes child, closes with stopReason all_closed); (2) work-record inspection/explanation (run-log and events contain runner_started/task_started/task_completed/all_closed and decomposition_completed; explain reports complete); (3) immediate delegation request in normal mode (loopback none pauses with delegation_pending, stepsRun 0); (4) loopback mode executes a waiting self-delegation and records the executor (loopback self, 1 loopback used, executedBy Nova, delegate frontmatter status: done / resolvedBy: loopback / executionMode: loopback); (5) final completion report signal (complete=true, status=complete, reportable stopReason all_closed).",
+      "metrics": [
+        { "name": "test_cases_passed", "value": 5, "unit": "cases" },
+        { "name": "test_cases_total", "value": 5, "unit": "cases" }
+      ]
+    },
+    {
+      "result_id": "r_readiness_states",
+      "description": "Number of distinct run-readiness classification states enumerated by the core model and run-readiness spec (runnable, needs_decomposition, needs_exploration, blocked), each mapped to a distinct runner dispatch action.",
+      "metrics": [
+        { "name": "readiness_states", "value": 4, "unit": "states" }
+      ]
+    },
+    {
+      "result_id": "r_retry_bounds",
+      "description": "Bounded-execution safety constants in the runner/daemon (README plus cli/lib-daemon.js and cli/lib-runner.js): watch-mode retry cap per task fingerprint, daemon default max-attempts, and default self-loopback budget.",
+      "metrics": [
+        { "name": "watch_retry_failure_cap", "value": 3, "unit": "failures" },
+        { "name": "daemon_max_attempts_default", "value": 3, "unit": "attempts" },
+        { "name": "max_loopbacks_default", "value": 3, "unit": "loopbacks" }
+      ]
+    },
+    {
+      "result_id": "r_runtime_adapters",
+      "description": "Runtime execution adapters registered in cli/lib-runtime-adapters.js: dry-run, openclaw-cli, claude-code, codex-cli, opencode-cli (one rehearsal adapter plus four real CLI agent runtimes).",
+      "metrics": [
+        { "name": "runtime_adapters", "value": 5, "unit": "adapters" },
+        { "name": "real_cli_agent_runtimes", "value": 4, "unit": "adapters" }
+      ]
+    },
+    {
+      "result_id": "r_distribution_channels",
+      "description": "Release model (docs/RELEASE_MODEL.md): one GitHub repo as the canonical release timeline feeding three distribution channels (skill -> ClawHub, CLI -> npm, Obsidian plugin -> GitHub Release assets).",
+      "metrics": [
+        { "name": "distribution_channels", "value": 3, "unit": "channels" }
+      ]
+    },
+    {
+      "result_id": "r_design_docs",
+      "description": "Canonical design documents that freeze the shared TaskOps contract under docs/ (CORE_MODEL, MD_FIRST_FORMAT, DECOMPOSITION_PROTOCOL, RUN_READINESS, LOOPBACK_DELEGATION_REQUIREMENTS, RELEASE_MODEL, WORK_LEVEL_AUDIT, PHASE-0-NAMING).",
+      "metrics": [
+        { "name": "canonical_design_docs", "value": 8, "unit": "documents" }
+      ]
+    }
+  ]
+}

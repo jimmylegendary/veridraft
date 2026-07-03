@@ -1,0 +1,26 @@
+{
+  "bundle_id": "demo-patent",
+  "boundary": "public",
+  "provenance_manifest": { "exported_by": "caw-02", "note": "L3a demo — a P3 (future-device) claim, well-evidenced, blocked only by the patent-first interlock" },
+  "claims": [
+    {
+      "claim_id": "pc1",
+      "type": "P3",
+      "boundary": "public",
+      "visibility": "team",
+      "statement": "A novel accelerator dataflow reduces energy per token on the target workload.",
+      "result_refs": ["pr1"],
+      "evidence": [
+        { "id": "pe1", "kind": "caw02_evidence", "ref": "caw02://claim/pc1/evidence/pe1", "trust": 0.9 },
+        { "id": "pe2", "kind": "caw01_result", "ref": "caw01://result/pr1", "trust": 0.95 }
+      ]
+    }
+  ],
+  "results": [
+    {
+      "result_id": "pr1",
+      "description": "energy benchmark from a CAW-01 run",
+      "metrics": [{ "name": "energy_per_token", "value": 0.42, "unit": "mJ" }]
+    }
+  ]
+}

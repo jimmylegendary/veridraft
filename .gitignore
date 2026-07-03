@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.veridraft/
+.caw03/
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+.DS_Store
+*.aux
+*.log
+*.out
+*.fls
+*.fdb_latexmk

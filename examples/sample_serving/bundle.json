@@ -1,0 +1,101 @@
+{
+  "bundle_id": "serving-2026",
+  "boundary": "public",
+  "provenance_manifest": {
+    "exported_by": "caw-02",
+    "topic": "Adaptive request scheduling for LLM inference serving",
+    "note": "sample research bundle for an end-to-end paper run"
+  },
+  "claims": [
+    {
+      "claim_id": "s1",
+      "type": "P1",
+      "boundary": "public",
+      "visibility": "team",
+      "statement": "An adaptive batching policy that sizes each batch to the current queue depth and token-budget reduces tail (p99) serving latency relative to a fixed-batch baseline, while preserving throughput.",
+      "result_refs": ["r_latency", "r_throughput"],
+      "evidence": [
+        { "id": "e1", "kind": "caw02_evidence", "ref": "caw02://claim/s1/evidence/e1", "trust": 0.93 },
+        { "id": "e2", "kind": "caw01_result", "ref": "caw01://result/r_latency", "trust": 0.96 }
+      ]
+    },
+    {
+      "claim_id": "s2",
+      "type": "P1",
+      "boundary": "public",
+      "visibility": "team",
+      "statement": "A latency-aware admission controller that briefly defers low-priority requests during load bursts keeps p99 latency within the service-level objective, sharply reducing SLO violations under bursty arrivals.",
+      "result_refs": ["r_slo"],
+      "evidence": [
+        { "id": "e3", "kind": "caw02_evidence", "ref": "caw02://claim/s2/evidence/e3", "trust": 0.9 },
+        { "id": "e4", "kind": "caw01_result", "ref": "caw01://result/r_slo", "trust": 0.94 }
+      ]
+    },
+    {
+      "claim_id": "s3",
+      "type": "P2",
+      "boundary": "public",
+      "visibility": "team",
+      "statement": "The scheduler is a drop-in policy module for existing inference servers: it requires no model, kernel, or API changes and adds negligible per-request overhead.",
+      "result_refs": ["r_overhead"],
+      "evidence": [
+        { "id": "e5", "kind": "caw02_evidence", "ref": "caw02://claim/s3/evidence/e5", "trust": 0.88 }
+      ]
+    },
+    {
+      "claim_id": "s4",
+      "type": "P2",
+      "boundary": "public",
+      "visibility": "team",
+      "statement": "The gains are consistent across model sizes, holding for both a 7B and a 13B model under the same serving configuration.",
+      "result_refs": ["r_scale"],
+      "evidence": [
+        { "id": "e6", "kind": "caw01_result", "ref": "caw01://result/r_scale", "trust": 0.92 }
+      ]
+    }
+  ],
+  "results": [
+    {
+      "result_id": "r_latency",
+      "description": "End-to-end p99 latency, fixed-batch baseline vs. adaptive batching (7B model, Poisson arrivals at 0.8 load)",
+      "metrics": [
+        { "name": "p99_latency_baseline", "value": 128, "unit": "ms" },
+        { "name": "p99_latency_ours", "value": 92, "unit": "ms" },
+        { "name": "p50_latency_baseline", "value": 41, "unit": "ms" },
+        { "name": "p50_latency_ours", "value": 38, "unit": "ms" }
+      ]
+    },
+    {
+      "result_id": "r_throughput",
+      "description": "Sustained throughput at 0.8 load",
+      "metrics": [
+        { "name": "throughput_baseline", "value": 14200, "unit": "tok/s" },
+        { "name": "throughput_ours", "value": 14600, "unit": "tok/s" }
+      ]
+    },
+    {
+      "result_id": "r_slo",
+      "description": "SLO violation rate under bursty arrivals (200ms p99 SLO, burst factor 3x)",
+      "metrics": [
+        { "name": "slo_violation_baseline", "value": 8.3, "unit": "%" },
+        { "name": "slo_violation_ours", "value": 1.1, "unit": "%" }
+      ]
+    },
+    {
+      "result_id": "r_overhead",
+      "description": "Scheduler decision overhead per request and integration cost",
+      "metrics": [
+        { "name": "decision_overhead", "value": 0.4, "unit": "ms" },
+        { "name": "integration_code_changes", "value": 0, "unit": "LOC to server core" }
+      ]
+    },
+    {
+      "result_id": "r_scale",
+      "description": "p99 latency reduction by model size",
+      "metrics": [
+        { "name": "p99_reduction_7b", "value": 28, "unit": "%" },
+        { "name": "p99_reduction_13b", "value": 25, "unit": "%" }
+      ]
+    }
+  ]
+}
