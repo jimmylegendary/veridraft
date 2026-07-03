@@ -7,10 +7,11 @@ open_items. Like the `paperorchestra` writing engine, it invokes a configured ru
 (`patent_command`) so the backend (self-hosted OSS API / openclaw / claude / codex) is a
 config choice, not code. `needs_human=True` is fixed; it NEVER files.
 
-Config example:
+Config example (same backend.json as the paper engine — see paperorchestra/config.example.json):
     [adapters.patent_engine.patent-llm]
-    patent_command = ["python3", "/abs/paperorchestra/run.py", "--config", "backend.json",
-                      "--workspace", "{workspace}", "--mode", "patent"]
+    patent_command = ["python3", "/abs/paperorchestra/patent_run.py", "--config", "backend.json",
+                      "--workspace", "{workspace}"]
+The deterministic, zero-dependency alternative is the `minimal-patent` engine (no model needed).
 """
 from __future__ import annotations
 

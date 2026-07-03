@@ -20,8 +20,8 @@
   "s2_api_key": null,
   "//s2_api_key": "optional Semantic Scholar API key to raise the 1 QPS public limit",
 
-  "skills_dir": "~/.claude/skills",
-  "//skills_dir": "where the paper-orchestra + sub-skill folders live (wherever you received them)",
+  "skills_dir": null,
+  "//skills_dir": "null => use the PaperOrchestra skills VENDORED in ./skills (MIT); set a path to override",
 
   "parallel_2_3": true,
   "//parallel_2_3": "run plotting (step 2) and lit-review (step 3) concurrently; set false on single-session backends",

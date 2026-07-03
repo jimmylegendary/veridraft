@@ -1,0 +1,15 @@
+Veridraft — THIRD-PARTY NOTICES
+================================
+
+This proprietary product VENDORS third-party open-source software. Those components
+retain their own licenses; nothing here relicenses them.
+
+PaperOrchestra  ( ./skills/ )
+  The AI paper-writing pipeline skills under ./skills/ are PaperOrchestra by ar9av.
+  Source:  https://github.com/Ar9av/PaperOrchestra
+  Paper:   Song et al., "PaperOrchestra: A Multi-Agent Framework for Automated AI
+           Research Paper Writing", arXiv:2604.05018, 2026.
+  License: MIT — Copyright (c) 2026 ar9av. Full text: ./skills/LICENSE.
+  Every agent prompt is reproduced verbatim from Appendix F of arXiv:2604.05018.
+
+Veridraft itself (everything outside ./skills/) is proprietary — see LICENSE.

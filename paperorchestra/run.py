@@ -43,7 +43,10 @@ def log(msg: str) -> None:
 
 
 def _skills_dir(cfg: dict) -> Path:
-    return Path(os.path.expanduser(cfg.get("skills_dir", "~/.claude/skills")))
+    if cfg.get("skills_dir"):
+        return Path(os.path.expanduser(cfg["skills_dir"]))
+    bundled = Path(__file__).resolve().parent.parent / "skills"   # vendored PaperOrchestra (MIT)
+    return bundled if bundled.exists() else Path(os.path.expanduser("~/.claude/skills"))
 
 
 def _degrade_notes(cfg: dict) -> str:

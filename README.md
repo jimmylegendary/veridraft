@@ -31,12 +31,35 @@ Veridraft is the **governance + wiring**, not the AI author. Document generation
 | Tier | Engine (in this repo) | Produces | Needs |
 |---|---|---|---|
 | **Self-contained (default)** | `minimal-latex` (paper), `minimal-patent` (patent) | A real, openable, **deterministically templated** PDF assembled from your gated claims — a valid document *skeleton* (patent: independent method/system/CRM claims + a dependent ladder + spec + abstract), fully governed. Not AI-authored prose. | **Nothing** — Python stdlib only, offline. |
-| **AI-quality (opt-in)** | `paperorchestra` (paper), `patent-llm` (patent) — adapters + the backend-agnostic runner in [`paperorchestra/`](paperorchestra/) | Full AI-written manuscripts (PaperOrchestra's 5-agent pipeline: outline → plotting → verified lit-review → section-writing → refinement). | (1) an **LLM backend** you configure (self-hosted OSS API / claude-code / openclaw / codex) **and** (2) the **PaperOrchestra skills**, which are a **separate component** (read from `skills_dir`, default `~/.claude/skills`) and are **NOT vendored here**. |
+| **AI-quality (opt-in)** | `paperorchestra` (paper) + the vendored **PaperOrchestra skills in [`skills/`](skills/)** (MIT); `patent-llm` (patent) + `paperorchestra/patent_run.py` | Full AI-written manuscripts (PaperOrchestra's 5-agent pipeline: outline → plotting → verified lit-review → section-writing → refinement) / an AI-drafted patent application. | Only an **LLM backend** you configure — a self-hosted OSS API (`base_url`/`api_key`/`model`), `claude-code`, `openclaw`, or `codex`. The PaperOrchestra pipeline is now **vendored** (no separate install); the *model* is what you connect. |
 
-So: **`python -m veridraft run …` / `draft-patent` work out of the box and emit a governed PDF**,
-but the *high-quality AI writing* is an external engine Veridraft drives, not code shipped in this
-repo. Every governance guarantee below holds identically for both tiers — the harness is what this
-project is.
+So: **`python -m veridraft run …` / `draft-patent` work out of the box and emit a governed PDF**;
+the *high-quality AI writing* is the vendored PaperOrchestra pipeline driven over a model you
+connect. Every governance guarantee below holds identically for both tiers — the harness is what
+this project is. See [Third-party notices](NOTICE) for the vendored MIT components.
+
+## Paper pipeline: deterministic contract vs model-dependent quality
+
+The design principle: **which steps run, in what order, with what I/O contract and gates, is
+deterministic** (guaranteed regardless of model); **only the content quality of each step scales
+with the connected model/agent.**
+
+| Step / feature | Deterministic (always runs · contract · gate) | Model-dependent (quality) |
+|---|---|---|
+| 0. Input validation | idea.md · experimental_log.md · template · guidelines required; strict experimental-log structure; TeX-package probe | — |
+| 1. Outline | exactly 1 call; output must be a **schema-valid `outline.json`** (invalid ⇒ pipeline HALTS); carries plotting/lit/section plans | outline structure / framing |
+| 2. Plotting (2‖3) | per-figure; **real matplotlib render** (not hallucinated); numbers ONLY from experimental_log §2; fixed VLM critique loop | figure design / clarity (needs a `vision_model`, else degrades) |
+| 3. Literature review (2‖3) | web-search discovery → **every citation verified against Semantic Scholar** (title match, cutoff, dedup); unverifiable citations dropped/TODO | discovered-literature relevance & prose (needs `web_search`, else degrades) |
+| 4. Section writing | 1 multimodal call; **numbers → booktabs tables verbatim** (no invented numbers); figures spliced; then gates: orphan-citation, latex-sanity, anti-leakage | prose quality of each section |
+| 5. Refinement | bounded loop with **strict halt rules** (iter cap; revert on score drop / net sub-axis regression; stop when no new weakness); each iter snapshotted | sharpness of critique / degree of improvement |
+| 6. Compile & provenance | latexmk `-no-shell-escape` → PDF; input/output-hash `provenance.json` | — |
+| anti-leakage | verbatim leakage-prevention prompt prepended to **every** writing call | — |
+
+Wrapping all of it, **Veridraft's own deterministic layer** (identical for any model): evidence
+gate + `require_results`, assemble (only gated claims + real results reach the engine), the runner's
+step contract (order · "a step must emit its artifact" · 2‖3 · degrade modes), egress
+(`decide()` + redaction re-sweep over the PDF), patent-first interlock, submission-readiness, and
+the tamper-evident ledger.
 
 ## What it guarantees
 
@@ -85,15 +108,47 @@ governed bundle (claims backed by `source_artifact` evidence, only real numbers)
 inputs, run the **PaperOrchestra** pipeline over `workspace/inputs/`, then `publish` (the egress
 gate scans the produced PDF). See [`docs/GUIDE.md`](docs/GUIDE.md).
 
-## Choosing / connecting an AI model
+## Connecting an AI model (papers **and** patents)
 
-Only three parts use an LLM — repo→bundle aggregation, the PaperOrchestra writing pipeline, and
-the AI reviewer; everything else is model-free Python. The portable runner in
-[`paperorchestra/`](paperorchestra/README.md) drives **any backend from one config** — a
-self-hosted OpenAI-compatible endpoint (`base_url`/`api_key`/`model`), `openclaw`, `claude-code`,
-or `codex` — so the same skills work with in-house OSS models or a Claude subscription. Governance
-is model-free, so the choice is quality/cost. Full guidance (Claude Max tiering vs OSS self-host,
-optional local Binoculars AI-text RISK detector) in [`docs/GUIDE.md`](docs/GUIDE.md).
+Only the LLM steps need a model; everything else is model-free Python. Both the paper runner
+(`paperorchestra/run.py`) and the patent runner (`paperorchestra/patent_run.py`) drive **the same
+four backends from one `backend.json`** (see [`paperorchestra/config.example.json`](paperorchestra/config.example.json)):
+
+| `backend` | How it runs | Model source |
+|---|---|---|
+| `api` | self-hosted OpenAI-compatible endpoint via an OSS agent CLI (`opencode`/`aider`) | `base_url` + `api_key` + `model` (vLLM/Ollama/TGI serving Qwen/Llama/…) |
+| `claude-code` | `claude -p` headless | the Claude CLI's model |
+| `openclaw` | `openclaw agent --json` | openclaw's provider (e.g. gpt-5.5) |
+| `codex` | `codex exec` | codex / OpenAI |
+
+```jsonc
+// backend.json — the same file for papers and patents
+{ "backend": "api", "base_url": "http://localhost:8000/v1", "api_key": "env:LLM_API_KEY",
+  "model": "Qwen/Qwen2.5-72B-Instruct", "api_driver": "opencode",
+  "vision_model": null, "web_search": "none" }   // vision/web optional → those steps degrade
+```
+
+Wire each engine to its runner via the harness config (`po_command` / `patent_command`):
+
+```jsonc
+"adapters": {
+  "writing_engine": { "id": "paperorchestra", "config": { "po_command":
+      ["python3","/abs/paperorchestra/run.py","--config","backend.json","--workspace","{workspace}"] } },
+  "patent_engine":  { "id": "patent-llm", "config": { "patent_command":
+      ["python3","/abs/paperorchestra/patent_run.py","--config","backend.json","--workspace","{workspace}"] } }
+}
+```
+
+- **Papers:** the vendored PaperOrchestra pipeline runs over your backend (`bash paperorchestra/setup.sh`
+  checks TeX / matplotlib / the backend). Vision + web-search are optional; without them the plotting
+  critique and lit-review degrade gracefully.
+- **Patents:** there is **no external "PaperOrchestra for patents"** — Veridraft's own engines fill
+  that gap. `minimal-patent` needs **no model** (deterministic); `patent-llm` drives the same backends
+  through `patent_run.py`, and `patent-review` gates the result. Veridraft **never files.**
+
+Governance is model-free, so the model is a quality/cost choice. Full guidance (Claude Max tiering
+vs OSS self-host, the optional local Binoculars AI-text RISK detector) in
+[`docs/GUIDE.md`](docs/GUIDE.md).
 
 ## Architecture
 

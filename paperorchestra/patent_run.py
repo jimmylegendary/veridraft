@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""Portable patent-drafting runner — backend-agnostic (sibling of run.py for papers).
+
+Drafts a US-utility-patent application over ANY configured backend (self-hosted OpenAI-compatible
+API, openclaw, claude-code, codex) from an assembled invention workspace, so Veridraft's
+`patent-llm` PatentEngine can be turnkey with the same connection config as the paper engine.
+
+    python3 patent_run.py --config backend.json --workspace <ws> [--probe]
+
+The workspace must contain inputs/{invention.md, claims.json} (Veridraft's `assemble_patent`
+produces exactly this). Output contract (consumed by the patent-llm adapter):
+    <ws>/final/patent.tex, <ws>/final/patent.pdf, <ws>/final/open_items.json
+
+Governance note: this NEVER files. It drafts; Veridraft's `patent-review` lints + a human/attorney
+gate decide filing-readiness. The drafting prompt bakes the readiness requirements (101 terminal
+effect, dispositive delta in the independent, method/system/CRM completeness, §112 definiteness).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import providers
+
+
+def log(m: str) -> None:
+    print(f"[patent-run] {m}", flush=True)
+
+
+def _read(p: Path) -> str:
+    return p.read_text(encoding="utf-8") if p.exists() else ""
+
+
+_PROMPT = """Draft a US utility-patent APPLICATION from the assembled invention disclosure. This is a
+DRAFT, never a filing. Read the inputs in {ws}/inputs/ (invention.md, claims.json, results.json,
+patentability.json) and write these files under {ws}/final/:
+  - patent.tex  : a USPTO-style LaTeX document — Field, Background, Summary, Detailed Description
+    (numbered [0001]… paragraphs, antecedent basis, multiple embodiments + fallbacks), a Brief
+    Description of the Drawings, CLAIMS, and an Abstract (<=150 words). Compile-safe LaTeX.
+  - open_items.json : a JSON array of every gap a human/attorney MUST resolve.
+
+CLAIM REQUIREMENTS (the review gate checks these — satisfy them):
+  - For EACH patentable substrate (each distinct invention in claims.json typed P1/P2), draft a
+    METHOD, a SYSTEM, and a non-transitory COMPUTER-READABLE MEDIUM independent claim, plus a
+    dependent-claim ladder from broadest to narrowest.
+  - Every INDEPENDENT claim must END in a concrete terminal technical effect (e.g. "and emitting a
+    machine-readable specification / configuring the accelerator …"), NOT at "computing a cost".
+  - Put each invention's DISPOSITIVE novelty delta in its INDEPENDENT claim (not only a dependent).
+  - The broadest independent = the smallest independently-novel unit (don't bake a second
+    device/design into the base claim).
+  - Every claim element must trace to an evidence-gated claim in claims.json. Do NOT invent numbers;
+    corroborating results (results.json) go in the SPEC, not as a claim's novelty basis.
+  - Define any relative term ("structurally different") with an enumerated closed list (§112(b)).
+  - P3 (future-device) claims are projections → do NOT independently claim them; list them in
+    open_items as requires-enablement-review.
+Also add open_items for: 102/103 prior-art search (UNSCREENED here), 101 eligibility (legal),
+§112 antecedent basis / means-plus-function, and jurisdiction formalities.
+When done, confirm {ws}/final/patent.tex and {ws}/final/open_items.json exist, then stop."""
+
+
+def draft(cfg: dict, ws: Path) -> int:
+    inputs = ws / "inputs"
+    if not (inputs / "invention.md").exists() or not (inputs / "claims.json").exists():
+        raise SystemExit(f"missing inputs/{{invention.md,claims.json}} in {ws} — run assemble_patent first")
+    (ws / "final").mkdir(parents=True, exist_ok=True)
+    prompt = _PROMPT.format(ws=str(ws))
+    log(f"drafting patent via backend={cfg.get('backend')}")
+    providers.dispatch(cfg, prompt, str(ws), timeout=(cfg.get("step_timeout_seconds") or 2400))
+    tex = ws / "final" / "patent.tex"
+    if not tex.exists():
+        raise SystemExit("backend did not produce final/patent.tex (too weak / wrong workspace)")
+    if not (ws / "final" / "open_items.json").exists():
+        (ws / "final" / "open_items.json").write_text("[]", encoding="utf-8")
+    # compile (fail-closed on shell-escape); a missing latexmk just leaves the .tex for review
+    try:
+        subprocess.run(["latexmk", "-pdf", "-no-shell-escape", "-interaction=nonstopmode", "patent.tex"],
+                       cwd=str(ws / "final"), capture_output=True, text=True, timeout=240)
+    except (OSError, subprocess.SubprocessError):
+        log("latexmk unavailable/failed — final/patent.tex left for review")
+    log("patent draft ready (final/patent.tex); NEVER filed — attorney review required")
+    return 0
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="patent-run")
+    ap.add_argument("--config", required=True)
+    ap.add_argument("--workspace", required=True)
+    ap.add_argument("--probe", action="store_true")
+    args = ap.parse_args(argv)
+    try:
+        cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise SystemExit(f"could not read/parse --config {args.config}: {e}")
+    ok, detail = providers.probe(cfg)
+    log(f"backend probe: {'OK' if ok else 'FAIL'} — {detail}")
+    if args.probe:
+        return 0 if ok else 1
+    if not ok:
+        raise SystemExit(detail)
+    return draft(cfg, Path(os.path.expanduser(args.workspace)).resolve())
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
