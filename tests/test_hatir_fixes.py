@@ -82,6 +82,44 @@ class RunnerFixesTest(unittest.TestCase):
         tmp.cleanup()
 
 
+class SelfFixLoopTest(unittest.TestCase):   # F4
+    def _run(self, verify_seq, dispatch_effect=None, max_iters=2):
+        tmp = tempfile.TemporaryDirectory(); ws = Path(tmp.name); (ws / "final").mkdir()
+        (ws / "final" / "paper.tex").write_bytes(b"ORIGINAL")
+        seq = iter(verify_seq); calls = {"n": 0}
+        orig = (run._verify_compile, run.compile_pdf, run.providers.dispatch)
+        run._verify_compile = lambda final: next(seq, [])
+        run.compile_pdf = lambda w: (w / "final" / "paper.pdf")
+        def fake_dispatch(cfg, prompt, cwd, timeout=0):
+            calls["n"] += 1
+            if dispatch_effect:
+                dispatch_effect(ws)
+            return "ok"
+        run.providers.dispatch = fake_dispatch
+        try:
+            run._self_fix({}, ws, max_iters)
+        finally:
+            run._verify_compile, run.compile_pdf, run.providers.dispatch = orig
+        return ws, calls, tmp
+
+    def test_converges_then_stops(self):
+        _, calls, tmp = self._run([["a", "b"], [], []])
+        self.assertEqual(calls["n"], 1)          # fixed in one dispatch, then clean
+        tmp.cleanup()
+
+    def test_reverts_iteration_that_regresses(self):
+        ws, calls, tmp = self._run([["a"], ["a", "b", "c"]],
+                                    dispatch_effect=lambda w: (w / "final" / "paper.tex").write_bytes(b"BROKEN"))
+        self.assertEqual((ws / "final" / "paper.tex").read_bytes(), b"ORIGINAL")   # made worse → reverted
+        self.assertEqual(calls["n"], 1)
+        tmp.cleanup()
+
+    def test_stops_when_issues_do_not_decrease(self):
+        _, calls, tmp = self._run([["a", "b"], ["a", "b"], ["a", "b"]])
+        self.assertEqual(calls["n"], 1)          # 2nd iter sees no decrease → stop, no re-dispatch
+        tmp.cleanup()
+
+
 class ReviewProvenanceTest(unittest.TestCase):
     def test_unsigned_bundle_is_na_not_failed(self):   # E3
         tmp = tempfile.TemporaryDirectory(); cfg = HarnessConfig(); cfg.data_dir = tmp.name

@@ -52,7 +52,8 @@ with the connected model/agent.**
 | 3. Literature review (2‖3) | web-search discovery → **every citation verified against Semantic Scholar** (title match, cutoff, dedup); unverifiable citations dropped/TODO | discovered-literature relevance & prose (needs `web_search`, else degrades) |
 | 4. Section writing | 1 multimodal call; **numbers → booktabs tables verbatim** (no invented numbers); figures spliced; then gates: orphan-citation, latex-sanity, anti-leakage | prose quality of each section |
 | 5. Refinement | bounded loop with **strict halt rules** (iter cap; revert on score drop / net sub-axis regression; stop when no new weakness); each iter snapshotted | sharpness of critique / degree of improvement |
-| 6. Compile & provenance | latexmk `-no-shell-escape` → PDF; input/output-hash `provenance.json` | — |
+| 6. Compile & provenance | latexmk `-no-shell-escape` (non-Latin → lualatex+kotex); input/output-hash `provenance.json` | — |
+| 7. Self-verify + fix | render-check → `verify.json` (overfull/clipped tables, missing figures, unresolved refs); **bounded** backend fix loop that **reverts any regression** | how well the backend patches the flagged defects |
 | anti-leakage | verbatim leakage-prevention prompt prepended to **every** writing call | — |
 
 Wrapping all of it, **Veridraft's own deterministic layer** (identical for any model): evidence

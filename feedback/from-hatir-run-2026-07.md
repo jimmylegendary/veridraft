@@ -179,7 +179,10 @@ Fixed + regression-tested (`tests/test_hatir_fixes.py`; 129 tests, verify 9/9):
 - **A1** — byte-identical figure duplicate WARNING at staging (perceptual near-dup: deferred).
 - **A2/F2** — deterministic overfull-hbox detection (from `paper.log`, >5pt).
 - **A3/F4** — deterministic self-verification after compile → `final/verify.json` + loud log for
-  {overfull, missing/placeholder figure, unresolved `\ref`/`\cite`}. (Full auto-FIX re-dispatch loop: deferred — model-dependent.)
+  {overfull, missing/placeholder figure, unresolved `\ref`/`\cite`}, AND a **bounded self-FIX loop**
+  (`self_fix`, default on): feeds those defects back into the backend to patch `paper.tex`, recompiles,
+  re-verifies; stops when clean / when issues don't decrease / after `self_fix_max_iters`, and REVERTS
+  any iteration that regresses.
 - **C1** — codex write-access is now EXPLICIT opt-in config (`codex_full_access: true` → the
   `--dangerously-bypass-approvals-and-sandbox` flag; `codex_sandbox: "<policy>"`), never a silent default.
 - **C2** — `claude_disable_mcp` now defaults **true** for the claude-code backend.
@@ -191,4 +194,4 @@ Fixed + regression-tested (`tests/test_hatir_fixes.py`; 129 tests, verify 9/9):
 - **E4** — vendored `check_tex_packages.py` uses `datetime.now(UTC)` (no DeprecationWarning).
 - **F1** — non-Latin (Korean/CJK) text → auto-switch to `lualatex` + inject `\usepackage{kotex}`/`xeCJK` (guarded; falls back to pdflatex if the tools are absent).
 
-Deferred (bigger / model-dependent): full self-fix re-dispatch loop (F4), perceptual near-dup + VLM caption check (A1/F3), a first-class translate/localize engine step (F5).
+Deferred (bigger / model-dependent): perceptual near-dup + VLM caption check (A1/F3), a first-class translate/localize engine step (F5).

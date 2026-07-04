@@ -211,6 +211,53 @@ def _cjk_prep(tex_path: Path) -> str:
     return "-lualatex"
 
 
+def _fix_prompt(ws: Path, issues: list[str]) -> str:
+    figs = sorted(p.name for p in (ws / "final" / "figures").glob("*")) if (ws / "final" / "figures").exists() else []
+    return (
+        f"The compiled PDF at {ws}/final/paper.pdf has these render DEFECTS (from the LaTeX log):\n- "
+        + "\n- ".join(issues) + f"\n\nEdit ONLY {ws}/final/paper.tex to fix exactly these, then stop:\n"
+        "- Overfull hbox / clipped table: wrap the offending tabular in \\resizebox{\\linewidth}{!}{ … }, "
+        "or convert it to tabularx with p{…} columns so it fits the text width — do NOT drop columns or data.\n"
+        f"- Missing figure file: repoint each \\includegraphics to an EXISTING file under figures/ "
+        f"(available: {figs}); if a referenced figure truly does not exist, remove that \\includegraphics "
+        "and its float — not the surrounding prose.\n"
+        "- Unresolved \\ref/\\cite: add the missing \\label or bib entry, or remove the dangling reference; "
+        "never leave a ?? in the output.\n"
+        "HARD RULES: do NOT change any number, result, table value, or prose content; do NOT add claims. "
+        f"Rewrite {ws}/final/paper.tex in place and confirm it exists.")
+
+
+def _self_fix(cfg: dict, ws: Path, max_iters: int = 2) -> None:
+    """F4: feed the deterministic self-check issues back into a BOUNDED fix loop (re-dispatch the
+    backend to patch final/paper.tex, recompile, re-verify). Stops when clean, when issues don't
+    decrease, or after max_iters; REVERTS an iteration that makes it worse (halt-rule discipline)."""
+    final = ws / "final"
+    prev = None
+    for it in range(1, max_iters + 1):
+        issues = _verify_compile(final)
+        if not issues:
+            return
+        if prev is not None and len(issues) >= len(prev):
+            log(f"self-fix iter {it}: {len(issues)} issue(s) did not decrease — stopping"); return
+        prev = issues
+        log(f"self-fix iter {it}/{max_iters}: {len(issues)} issue(s) → dispatching a targeted fix")
+        backup = (final / "paper.tex").read_bytes()
+        try:
+            providers.dispatch(cfg, _fix_prompt(ws, issues), str(ws),
+                               timeout=(cfg.get("step_timeout_seconds") or 2400))
+        except Exception as e:   # noqa: BLE001 — a backend failure must not lose the paper
+            log(f"self-fix dispatch failed ({e}) — keeping the pre-fix paper"); return
+        compile_pdf(ws)          # re-stage + recompile + rewrite verify.json
+        after = _verify_compile(final)
+        if len(after) > len(issues):
+            log(f"self-fix iter {it} made it worse ({len(after)} > {len(issues)}) — reverting")
+            (final / "paper.tex").write_bytes(backup)
+            compile_pdf(ws)
+            return
+    remain = _verify_compile(final)
+    log(f"self-fix: {len(remain)} issue(s) remain after {max_iters} iters" if remain else "self-fix: clean")
+
+
 def compile_pdf(ws: Path) -> Path | None:
     final = ws / "final"
     final.mkdir(exist_ok=True)
@@ -294,6 +341,12 @@ def main(argv=None) -> int:
 
     if args.to >= 6:
         pdf = compile_pdf(ws)
+        # F4: if the deterministic self-check found render defects, feed them back into a bounded
+        # fix loop (re-dispatch the backend to patch paper.tex, recompile, re-verify). Opt-out via
+        # self_fix:false; the loop reverts any iteration that makes it worse.
+        if pdf and cfg.get("self_fix", True) and _verify_compile(ws / "final"):
+            _self_fix(cfg, ws, int(cfg.get("self_fix_max_iters", 2)))
+            pdf = (ws / "final" / "paper.pdf") if (ws / "final" / "paper.pdf").exists() else None
         log(f"compiled: {pdf}" if pdf else "compile skipped/failed (no final/paper.tex or latexmk issue)")
     log("done")
     return 0
