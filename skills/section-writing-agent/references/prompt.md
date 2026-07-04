@@ -116,13 +116,18 @@ statements match correctly (e.g., \begin{{figure*}} must be closed with
 
 ## Comparative / superlative claims MUST distinguish the closest neighbor
 
-Whenever the prose makes a comparative or superlative novelty claim — "only", "no prior tool",
-"first to", "unlike all existing" — the **very next sentence** must **name and distinguish the
-closest cited work** that a reviewer would raise as the counterexample. Do not leave an "only tool"
-framing standing alone; a reviewer rejects it on the nearest neighbor.
+Whenever the prose YOU write (abstract, intro, contributions — the sections this step authors) makes
+a comparative or superlative novelty claim — "only", "no prior tool", "first to", "unlike all
+existing" — it must be **immediately followed by a clause that names and distinguishes the closest
+cited work** a reviewer would raise as the counterexample. Do not leave an "only tool" framing
+standing alone; a reviewer rejects it on the nearest neighbor.
+
+Note the boundary: `intro_relwork.tex` from Step 3 is preserved **verbatim** — do not rewrite it.
+The distinguishing clause belongs where YOU state the claim (abstract/intro), and must be
+CONSISTENT with the preserved Related Work (which should already cite that neighbor).
 
 Example (from a real run): the abstract claimed "no prior tool costs a real captured workload against
 a non-existent accelerator." The nearest threat is **Flint** (captures a real workload for
-non-existent hardware) — so Related Work must add: "Flint [cite] also drives non-existent hardware
-from a captured workload, but provides *no cost model* and operates at cluster tier; we differ by
-<the specific delta>." Never state the superlative without this adjacent distinguishing sentence.
+non-existent hardware). The abstract/intro sentence should read: "…no prior tool does so *with a cost
+model* — Flint [cite] captures such a workload but has no cost model and is cluster-tier — whereas we
+<the specific delta>." Never state the superlative without this adjacent distinguishing clause.

@@ -35,36 +35,54 @@ class RunnerFixesTest(unittest.TestCase):
         self.assertFalse(any("cite" in i for i in issues))   # NOT from the log (false-positive source)
         tmp.cleanup()
 
-    def test_bibtex_skip_and_pdf_marker_detection(self):   # G1
+    def test_bibtex_skip_then_summary_based_unresolved(self):   # G1 (round-3: log-summary, not pdftotext)
         tmp = tempfile.TemporaryDirectory(); final = Path(tmp.name)
         (final / "paper.tex").write_text(r"\documentclass{article}\begin{document}"
                                          r"\cite{a}\bibliography{refs}\end{document}")
-        orig = run._pdf_text
-        run._pdf_text = lambda pdf: ""            # no PDF text yet
-        try:
-            issues = run._verify_compile(final)   # \cite but no paper.bbl → bibtex-skip
-            self.assertTrue(any(i.startswith(run._BIBTEX_SKIP) for i in issues))
-            (final / "paper.bbl").write_text(r"\begin{thebibliography}{1}\bibitem{a}A.\end{thebibliography}")
-            run._pdf_text = lambda pdf: "body text with an unresolved [?] citation and a ?? ref"
-            issues = run._verify_compile(final)   # bbl now present → judge the FINAL PDF text
-            self.assertFalse(any(i.startswith(run._BIBTEX_SKIP) for i in issues))
-            self.assertTrue(any("[?]" in i for i in issues))
-            self.assertTrue(any("??" in i for i in issues))
-        finally:
-            run._pdf_text = orig
+        issues = run._verify_compile(final)              # external \bibliography, no .bbl → bibtex-skip
+        self.assertTrue(any(i.startswith(run._BIBTEX_SKIP) for i in issues))
+        # add a non-empty .bbl + a log carrying the END-OF-RUN summary → genuine unresolved
+        (final / "paper.bbl").write_text(r"\begin{thebibliography}{1}\bibitem{a}A.\end{thebibliography}")
+        (final / "paper.log").write_text("LaTeX Warning: There were undefined references.\n")
+        issues = run._verify_compile(final)
+        self.assertFalse(any(i.startswith(run._BIBTEX_SKIP) for i in issues))
+        self.assertTrue(any(i.startswith(run._UNRESOLVED) for i in issues))
         tmp.cleanup()
 
-    def test_healthy_build_has_no_cite_false_positive(self):   # G1
+    def test_no_false_positive_on_prose_markers(self):   # G1 (#309/#310/#312)
+        # healthy build: per-occurrence log warnings + literal [?]/?? in PROSE → NO issue (summary absent)
         tmp = tempfile.TemporaryDirectory(); final = Path(tmp.name)
         (final / "paper.tex").write_text(r"\documentclass{article}\begin{document}\cite{a}\bibliography{refs}\end{document}")
         (final / "paper.bbl").write_text(r"\begin{thebibliography}{1}\bibitem{a}A.\end{thebibliography}")
         (final / "paper.log").write_text("Package natbib Warning: Citation `a' undefined\n" * 164)
         orig = run._pdf_text
-        run._pdf_text = lambda pdf: "a clean paper body, all citations resolved [1]"
+        run._pdf_text = lambda pdf: "the ?? operator returns nil; unknown value [?] in a table cell"
         try:
-            self.assertEqual(run._verify_compile(final), [])   # 164 log warnings → 0 issues
+            self.assertEqual(run._verify_compile(final), [])   # no end-of-run summary → clean
         finally:
             run._pdf_text = orig
+        tmp.cleanup()
+
+    def test_inline_thebibliography_not_flagged(self):   # #306: manual bib needs no .bbl
+        tmp = tempfile.TemporaryDirectory(); final = Path(tmp.name)
+        (final / "paper.tex").write_text(r"\documentclass{article}\usepackage{natbib}\begin{document}"
+                                         r"\citep{a}\begin{thebibliography}{1}\bibitem{a}A.\end{thebibliography}\end{document}")
+        self.assertFalse(any(i.startswith(run._BIBTEX_SKIP) for i in run._verify_compile(final)))
+        tmp.cleanup()
+
+    def test_self_fix_reverts_when_recompile_breaks(self):   # #397
+        tmp = tempfile.TemporaryDirectory(); ws = Path(tmp.name); (ws / "final").mkdir()
+        (ws / "final" / "paper.tex").write_bytes(b"GOOD")
+        seq = iter([["overfull hbox 12pt too wide"], [], []])
+        orig = (run._verify_compile, run.compile_pdf, run.providers.dispatch)
+        run._verify_compile = lambda final: next(seq, [])
+        run.compile_pdf = lambda w: None            # simulate: the backend edit BROKE compilation
+        run.providers.dispatch = lambda *a, **k: (ws / "final" / "paper.tex").write_bytes(b"BROKEN")
+        try:
+            run._self_fix({}, ws, 2)
+        finally:
+            run._verify_compile, run.compile_pdf, run.providers.dispatch = orig
+        self.assertEqual((ws / "final" / "paper.tex").read_bytes(), b"GOOD")   # reverted, not lost
         tmp.cleanup()
 
     def test_self_fix_routes_bibtex_skip_to_recompile_not_backend(self):   # G1

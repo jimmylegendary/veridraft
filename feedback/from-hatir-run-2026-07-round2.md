@@ -122,3 +122,29 @@ into any language over the same backend (`--lang ko|Korean|한국어|de|…`), i
 kept in English + LaTeX/keys/numbers preserved; CJK → lualatex+kotex auto, self-verified, idempotent.
 
 Still deferred: auto-FIXING visual figure defects (regenerating figures) beyond detection.
+
+---
+
+## Self-adversarial-review (workflow, 2026-07-04) — 10 CONFIRMED findings, all fixed
+
+An adversarial multi-agent review of the round-2 fixes themselves surfaced regressions the fixes
+introduced; all fixed + regression-tested (143 tests, verify 9/9; validated with real latexmk):
+- **[HIGH] pdftotext-absent false-negative + false "resolved"** — `_verify_compile` no longer scans
+  pdftotext for `[?]`/`??`; it now trusts the FINAL-pass end-of-run summary `There were undefined
+  references/citations` (reliable, works without poppler-utils, immune to prose `[?]`/`??`). pdftotext
+  only enriches the message. G2 "clickable" is based on that authoritative signal, not an empty scan.
+- **[HIGH] `_self_fix` count-only revert lost a good paper** — `compile_pdf` now returns None on a
+  non-zero latexmk exit (real LaTeX error), and `_self_fix` reverts to the pre-fix `paper.tex` when the
+  recompile FAILS (not just when the issue count rises), so a compile-breaking edit can't destroy a
+  shippable paper.
+- **inline `\begin{thebibliography}` false BIBTEX-SKIP** — a new `_uses_bibtex` gates the `.bbl` check
+  and the recovery pass on an EXTERNAL `\bibliography`/`\addbibresource` only (a manual bib needs no `.bbl`).
+- **bibtex-skip `[?]` symptom routed to the backend** — `_self_fix` now excludes the co-occurring
+  unresolved-cite symptom (not only the token) from editable when a bibtex-skip is present (recompile,
+  never a backend edit).
+- **prose `[?]`/`??` false-positives** — removed with the summary-based signal above.
+- **EPS excluded from near-dup** — `_fig_ahash` rasterizes eps via mutool/gs (pdftoppm is PDF-only).
+- **blank/sparse figure aHash collision** — near-uniform figures (stdev < 5) are excluded from near-dup.
+- **G5 skill contradiction** — the distinguishing clause now belongs where the claim is authored
+  (abstract/intro), not in the verbatim-preserved Related Work.
+(2 findings were rate-limited before verification; 1 near-dup finding downgraded to PLAUSIBLE.)

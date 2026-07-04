@@ -168,6 +168,13 @@ def _needs_bib(tex_src: str) -> bool:
     return bool(re.search(r"\\(cite[a-z]*|bibliography|addbibresource)\b", tex_src))
 
 
+def _uses_bibtex(tex_src: str) -> bool:
+    """True ONLY for an external bibtex/biber bibliography (\\bibliography{...} / \\addbibresource) —
+    NOT a manual inline \\begin{thebibliography}, which needs no .bbl (cites resolve via the .aux)."""
+    return (bool(re.search(r"\\(bibliography|addbibresource)\b", tex_src))
+            and "\\begin{thebibliography}" not in tex_src)
+
+
 def _pdf_text(pdf: Path) -> str:
     """Extract the FINAL PDF's text (pdftotext). '' if the PDF/tool is absent."""
     if not pdf.exists() or not shutil.which("pdftotext"):
@@ -212,24 +219,34 @@ def _fig_ahash(path: Path) -> int | None:
     tmp = None
     if path.suffix.lower() in (".pdf", ".eps"):
         tmp = path.with_suffix(".ahash.png")
-        try:
-            if shutil.which("pdftoppm"):
-                subprocess.run(["pdftoppm", "-png", "-singlefile", "-r", "50", str(path),
-                                str(tmp.with_suffix(""))], capture_output=True, timeout=30)
-            elif shutil.which("mutool"):
-                subprocess.run(["mutool", "draw", "-o", str(tmp), "-r", "50", str(path), "1"],
-                               capture_output=True, timeout=30)
-            else:
-                return None
-        except (OSError, subprocess.SubprocessError):
-            return None
+        # pdftoppm reads PDF only (NOT eps); build a candidate chain and use the first that renders.
+        cands = []
+        if path.suffix.lower() == ".pdf" and shutil.which("pdftoppm"):
+            cands.append(["pdftoppm", "-png", "-singlefile", "-r", "50", str(path), str(tmp.with_suffix(""))])
+        if shutil.which("mutool"):
+            cands.append(["mutool", "draw", "-o", str(tmp), "-r", "50", str(path), "1"])
+        if shutil.which("gs"):
+            cands.append(["gs", "-q", "-dSAFER", "-dBATCH", "-dNOPAUSE", "-dEPSCrop", "-sDEVICE=png16m",
+                          "-r50", f"-sOutputFile={tmp}", str(path)])
+        for cmd in cands:
+            try:
+                subprocess.run(cmd, capture_output=True, timeout=30)
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if tmp.exists():
+                break
         src = tmp if tmp.exists() else None
     try:
         if src is None or not src.exists():
             return None
         img = Image.open(src).convert("L").resize((8, 8))
-        px = list(img.getdata())
+        px = list(img.tobytes())   # 64 grayscale bytes (getdata() is deprecated in Pillow 12+)
         avg = sum(px) / len(px)
+        # A near-uniform (blank / near-blank) figure carries no perceptual signal — its average hash
+        # collapses and collides with any other blank, so DON'T hash it for similarity (fixes the
+        # sparse/blank-figure false near-dup).
+        if sum((p - avg) ** 2 for p in px) / len(px) < 25:   # stdev < 5 on 0..255 ⇒ effectively flat
+            return None
         return sum(1 << i for i, p in enumerate(px) if p >= avg)
     except Exception:   # noqa: BLE001 — a bad image must not crash the compile
         return None
@@ -285,12 +302,17 @@ def _vlm_findings(cfg: dict, final: Path) -> list[str]:
         return []
 
 
+_UNRESOLVED = "unresolved \\ref/\\cite"
+
+
 def _verify_compile(final: Path) -> list[str]:
-    """Deterministic render-and-check (F2/A3/G1). Overfull boxes + missing figures are read from the
-    compile LOG (final-pass truths). Unresolved refs/cites are judged from the FINAL PDF's TEXT
-    (pdftotext → literal [?]/??), NOT the log: a healthy multi-pass build emits 100s of transient
-    'Citation/Reference undefined' lines before bibtex runs (G1 — that log grep was a false positive
-    on every real build). Also flags a missing .bbl when the paper cites (bibtex never ran)."""
+    """Deterministic render-and-check (F2/A3/G1). Overfull boxes + missing figures come from the
+    compile LOG. Unresolved refs/cites are judged from the FINAL-pass end-of-run SUMMARY line
+    'There were undefined references/citations' — emitted once IFF something is still unresolved at
+    the end, so it is reliable, works WITHOUT pdftotext, and is immune both to the 100s of transient
+    per-occurrence warnings the early passes emit AND to a literal [?]/?? in prose/code (the round-2
+    pdftotext grep false-positived on those); pdftotext only ENRICHES the message. A missing .bbl is
+    flagged only for an EXTERNAL bibtex bibliography (an inline \\begin{thebibliography} needs none)."""
     logf = final / "paper.log"
     txt = logf.read_text(encoding="utf-8", errors="replace") if logf.exists() else ""
     issues: list[str] = []
@@ -301,16 +323,15 @@ def _verify_compile(final: Path) -> list[str]:
         issues.append(f"missing figure file: {m.group(1)} (placeholder box in the PDF)")
     tex_src = ((final / "paper.tex").read_text(encoding="utf-8", errors="replace")
                if (final / "paper.tex").exists() else "")
-    if _needs_bib(tex_src):
+    if _uses_bibtex(tex_src):
         bbl = final / "paper.bbl"
         if not bbl.exists() or bbl.stat().st_size == 0:
-            issues.append(f"{_BIBTEX_SKIP}: no non-empty paper.bbl though the paper \\cite's — every "
-                          "citation renders as [?]; recompile with a bibtex pass (do NOT edit the tex)")
-    pdf_txt = _pdf_text(final / "paper.pdf")
-    if "[?]" in pdf_txt:
-        issues.append("unresolved \\cite rendered as [?] in the final PDF")
-    if re.search(r"(?<!\d)\?\?(?!\d)", pdf_txt):
-        issues.append("unresolved \\ref rendered as ?? in the final PDF")
+            issues.append(f"{_BIBTEX_SKIP}: the paper uses \\bibliography but produced no non-empty "
+                          "paper.bbl — bibtex never ran, so every citation renders as [?]; recompile "
+                          "with a bibtex pass (do NOT edit the tex)")
+    if re.search(r"There were undefined (?:references|citations)", txt):
+        marker = " ([?] in the PDF)" if "[?]" in _pdf_text(final / "paper.pdf") else ""
+        issues.append(f"{_UNRESOLVED} reported by LaTeX{marker}")
     seen, out = set(), []
     for i in issues:
         k = i.split(":")[0].split("(")[0][:40]
@@ -367,17 +388,23 @@ def _self_fix(cfg: dict, ws: Path, max_iters: int = 2) -> None:
     backend to patch final/paper.tex, recompile, re-verify). Stops when clean, when issues don't
     decrease, or after max_iters; REVERTS an iteration that makes it worse (halt-rule discipline)."""
     final = ws / "final"
+
+    def _editable(issues: list[str]) -> list[str]:
+        # A bibtex-skip is a COMPILE problem: neither the BIBTEX-SKIP token NOR its co-occurring [?]
+        # cite symptom may go to the backend (the keys are fine — bibtex just didn't run; an
+        # over-eager edit would delete \cite and CAUSE the [?]). Only genuine editable defects remain.
+        skip = any(i.startswith(_BIBTEX_SKIP) for i in issues)
+        return [i for i in issues if not i.startswith(_BIBTEX_SKIP)
+                and not (skip and i.startswith(_UNRESOLVED))]
+
     prev = None
     for it in range(1, max_iters + 1):
         issues = _verify_compile(final)
-        # G1: a bibtex-skip is a COMPILE problem, not a text problem. Recompile (compile_pdf runs the
-        # bibtex recovery), NEVER hand it to the backend — an over-eager edit deletes \cite and causes
-        # the very [?] the user saw. Only the remaining defects are eligible for a backend edit.
         if any(i.startswith(_BIBTEX_SKIP) for i in issues):
             log(f"self-fix iter {it}: bibtex-skip → recompile recovery (no backend edit)")
             compile_pdf(ws)
             issues = _verify_compile(final)
-        editable = [i for i in issues if not i.startswith(_BIBTEX_SKIP)]
+        editable = _editable(issues)
         if not editable:
             if issues:
                 log(f"self-fix: {len(issues)} unfixable issue(s) remain (bibtex/env) — see verify.json")
@@ -392,10 +419,11 @@ def _self_fix(cfg: dict, ws: Path, max_iters: int = 2) -> None:
                                timeout=(cfg.get("step_timeout_seconds") or 2400))
         except Exception as e:   # noqa: BLE001 — a backend failure must not lose the paper
             log(f"self-fix dispatch failed ({e}) — keeping the pre-fix paper"); return
-        compile_pdf(ws)          # re-stage + recompile (with bibtex recovery) + rewrite verify.json
-        after = [i for i in _verify_compile(final) if not i.startswith(_BIBTEX_SKIP)]
-        if len(after) > len(editable):
-            log(f"self-fix iter {it} made it worse ({len(after)} > {len(editable)}) — reverting")
+        newpdf = compile_pdf(ws)   # re-stage + recompile + rewrite verify.json (None ⇒ compile broke)
+        after = _editable(_verify_compile(final))
+        if newpdf is None or len(after) > len(editable):
+            reason = "broke compilation" if newpdf is None else f"made it worse ({len(after)} > {len(editable)})"
+            log(f"self-fix iter {it} {reason} — reverting to the pre-fix paper")
             (final / "paper.tex").write_bytes(backup)
             compile_pdf(ws)
             return
@@ -418,20 +446,28 @@ def compile_pdf(ws: Path) -> Path | None:
         return None
     engine_flag = _cjk_prep(final / "paper.tex")   # F1: non-Latin → lualatex + kotex if available
     try:
-        subprocess.run(["latexmk", engine_flag, "-no-shell-escape", "-interaction=nonstopmode", "paper.tex"],
-                       cwd=str(final), capture_output=True, text=True, timeout=240)
+        proc = subprocess.run(
+            ["latexmk", engine_flag, "-no-shell-escape", "-interaction=nonstopmode", "paper.tex"],
+            cwd=str(final), capture_output=True, text=True, timeout=240)
     except subprocess.TimeoutExpired:
         log("latexmk timed out — a runaway/injected .tex; compile aborted")
         return None
     pdf = final / "paper.pdf"
+    # A non-zero latexmk exit means a genuine LaTeX ERROR (unbalanced braces, undefined command, …),
+    # not a mere warning — the PDF is missing or stale. Report the compile as FAILED (return None) so
+    # a self-fix edit that BREAKS compilation is caught and reverted instead of silently shipping a
+    # stale/garbage PDF (undefined refs/overfull are warnings → exit 0, so this doesn't misfire).
+    if proc.returncode != 0:
+        log(f"latexmk exited {proc.returncode} (LaTeX errors) — compile FAILED")
+        return None
     if not pdf.exists():
         return None
     # G1: latexmk skips the bibtex+rerun cycle if an earlier pass errored → no .bbl → every \cite
-    # becomes [?]. If the paper cites but produced no .bbl, run an explicit bibtex recovery pass.
+    # becomes [?]. Run an explicit bibtex recovery only for an EXTERNAL bibtex bibliography with no .bbl.
     tex_src = (final / "paper.tex").read_text(encoding="utf-8", errors="replace")
     bbl = final / "paper.bbl"
-    if _needs_bib(tex_src) and (not bbl.exists() or bbl.stat().st_size == 0):
-        log("citations present but no paper.bbl — running an explicit bibtex recovery pass")
+    if _uses_bibtex(tex_src) and (not bbl.exists() or bbl.stat().st_size == 0):
+        log("external \\bibliography but no paper.bbl — running an explicit bibtex recovery pass")
         _bibtex_recover(final, engine_flag)
         if not pdf.exists():
             return None
@@ -449,9 +485,10 @@ def compile_pdf(ws: Path) -> Path | None:
         log("self-check: no overfull boxes / missing figures / unresolved refs")
     for d in dups:
         log(f"  ⚠ {d}")
-    # G2: hyperref + resolved citations ⇒ clickable cross-references (checked, not assumed):
-    # both conditions are verified deterministically; /Link detection is a bonus confirmation.
-    if _needs_bib(tex_src) and "hyperref" in tex_src and "[?]" not in _pdf_text(pdf):
+    # G2: hyperref + resolved citations ⇒ clickable cross-references (checked, not assumed). Base
+    # "resolved" on the authoritative issues list (LaTeX's undefined-refs summary), NOT on a
+    # pdftotext [?] scan — else a host without pdftotext would falsely claim "resolved".
+    if _needs_bib(tex_src) and "hyperref" in tex_src and not any(i.startswith(_UNRESOLVED) for i in issues):
         log("clickable cross-references: hyperref active + citations resolved"
             + (" (/Link annotations confirmed)" if _has_link_annots(pdf) else ""))
     return pdf
