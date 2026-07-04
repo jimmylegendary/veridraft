@@ -19,17 +19,66 @@ EX = Path(__file__).resolve().parent.parent / "examples" / "bundle_demo"
 
 
 class RunnerFixesTest(unittest.TestCase):
-    def test_verify_compile_catches_overfull_missing_ref(self):   # A2/A3/F2/B3
+    def test_verify_compile_overfull_and_missing_from_log(self):   # A2/F2/B3
+        # overfull + missing-figure are LOG truths; cite/ref 'undefined' lines in the log are NOT
+        # (a healthy multi-pass build emits 100s before bibtex) → they must NOT surface here (G1).
         tmp = tempfile.TemporaryDirectory(); final = Path(tmp.name); (final / "paper.log").write_text(
             "Overfull \\hbox (215.6pt too wide) in paragraph\n"
             "LaTeX Warning: File `figures/x.pdf' not found on input line 5.\n"
-            "LaTeX Warning: Reference `fig:y' on page 2 undefined on input line 9.\n"
             "LaTeX Warning: Citation `smith' on page 3 undefined on input line 12.\n")
         issues = run._verify_compile(final)
         self.assertTrue(any("overfull" in i for i in issues))
         self.assertTrue(any("figures/x.pdf" in i for i in issues))
-        self.assertTrue(any("\\ref" in i for i in issues))
-        self.assertTrue(any("\\cite" in i for i in issues))
+        self.assertFalse(any("cite" in i for i in issues))   # NOT from the log (false-positive source)
+        tmp.cleanup()
+
+    def test_bibtex_skip_and_pdf_marker_detection(self):   # G1
+        tmp = tempfile.TemporaryDirectory(); final = Path(tmp.name)
+        (final / "paper.tex").write_text(r"\documentclass{article}\begin{document}"
+                                         r"\cite{a}\bibliography{refs}\end{document}")
+        orig = run._pdf_text
+        run._pdf_text = lambda pdf: ""            # no PDF text yet
+        try:
+            issues = run._verify_compile(final)   # \cite but no paper.bbl → bibtex-skip
+            self.assertTrue(any(i.startswith(run._BIBTEX_SKIP) for i in issues))
+            (final / "paper.bbl").write_text(r"\begin{thebibliography}{1}\bibitem{a}A.\end{thebibliography}")
+            run._pdf_text = lambda pdf: "body text with an unresolved [?] citation and a ?? ref"
+            issues = run._verify_compile(final)   # bbl now present → judge the FINAL PDF text
+            self.assertFalse(any(i.startswith(run._BIBTEX_SKIP) for i in issues))
+            self.assertTrue(any("[?]" in i for i in issues))
+            self.assertTrue(any("??" in i for i in issues))
+        finally:
+            run._pdf_text = orig
+        tmp.cleanup()
+
+    def test_healthy_build_has_no_cite_false_positive(self):   # G1
+        tmp = tempfile.TemporaryDirectory(); final = Path(tmp.name)
+        (final / "paper.tex").write_text(r"\documentclass{article}\begin{document}\cite{a}\bibliography{refs}\end{document}")
+        (final / "paper.bbl").write_text(r"\begin{thebibliography}{1}\bibitem{a}A.\end{thebibliography}")
+        (final / "paper.log").write_text("Package natbib Warning: Citation `a' undefined\n" * 164)
+        orig = run._pdf_text
+        run._pdf_text = lambda pdf: "a clean paper body, all citations resolved [1]"
+        try:
+            self.assertEqual(run._verify_compile(final), [])   # 164 log warnings → 0 issues
+        finally:
+            run._pdf_text = orig
+        tmp.cleanup()
+
+    def test_self_fix_routes_bibtex_skip_to_recompile_not_backend(self):   # G1
+        tmp = tempfile.TemporaryDirectory(); ws = Path(tmp.name); (ws / "final").mkdir()
+        (ws / "final" / "paper.tex").write_bytes(b"ORIGINAL")
+        seq = iter([[f"{run._BIBTEX_SKIP}: no bbl"], []])   # after recompile → clean
+        calls = {"dispatch": 0, "compile": 0}
+        orig = (run._verify_compile, run.compile_pdf, run.providers.dispatch)
+        run._verify_compile = lambda final: next(seq, [])
+        run.compile_pdf = lambda w: calls.__setitem__("compile", calls["compile"] + 1)
+        run.providers.dispatch = lambda *a, **k: calls.__setitem__("dispatch", calls["dispatch"] + 1)
+        try:
+            run._self_fix({}, ws, 2)
+        finally:
+            run._verify_compile, run.compile_pdf, run.providers.dispatch = orig
+        self.assertEqual(calls["dispatch"], 0)   # bibtex-skip never goes to the backend
+        self.assertGreaterEqual(calls["compile"], 1)
         tmp.cleanup()
 
     def test_stage_all_figure_types_and_dedup(self):   # B3 / A1
