@@ -90,7 +90,8 @@ def _run_script(cfg: dict, rel: str, args: list[str]) -> int:
 
 def step0(cfg: dict, ws: Path) -> None:
     log("step 0: scaffold + validate inputs + tex profile")
-    _run_script(cfg, "init_workspace.py", ["--out", str(ws)])
+    # veridraft assembles a pre-populated workspace (inputs/ + refs.bib + final/); overlay it.
+    _run_script(cfg, "init_workspace.py", ["--out", str(ws), "--force"])
     # The input-validation gate is fail-CLOSED: a missing validator (wrong skills_dir) must stop
     # the pipeline, not silently skip validation; a non-zero validator result stops it too.
     validator = _skills_dir(cfg) / "paper-orchestra" / "scripts" / "validate_inputs.py"
@@ -110,11 +111,27 @@ def run_step(cfg: dict, step, ws: Path) -> str:
     log(f"step {step_no} ({key}) → {output}  [backend={cfg.get('backend')}]")
     prompt = _step_prompt(cfg, step_no, skill, output, writes, ws)
     target = ws / output
-    before = target.stat().st_mtime if target.exists() else None   # detect a stale (un-rewritten) file
+    # Some backends reliably CREATE a fresh file but won't overwrite an existing one. Move any
+    # pre-existing target aside so the step must (re)create it; restore the backup if it doesn't
+    # (never lose a valid file). refs.bib may legitimately be reused in degraded (no-web) lit-review.
+    backup = None
+    if target.exists():
+        backup = target.with_suffix(target.suffix + ".prev")
+        if backup.exists():
+            backup.unlink()
+        target.rename(backup)
     providers.dispatch(cfg, prompt, str(ws), timeout=(cfg.get("step_timeout_seconds") or 2400))
-    if not target.exists() or (before is not None and target.stat().st_mtime <= before):
+    if not target.exists():
+        if backup is not None and output == "refs.bib":
+            backup.rename(target)
+            log(f"step {step_no} ok (kept existing {output}; degraded lit-review)")
+            return output
+        if backup is not None:
+            backup.rename(target)   # restore so a retry has the prior file
         raise SystemExit(f"step {step_no} did not (re)produce {output} — a weak backend may have "
                          f"exited without writing it, or it lacks a required tool. See degrade modes.")
+    if backup is not None and backup.exists():
+        backup.unlink()
     log(f"step {step_no} ok")
     return output
 
