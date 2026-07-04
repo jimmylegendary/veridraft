@@ -94,3 +94,28 @@ A1/F3 perceptual near-dup + VLM caption-consistency (now folded into G4); F5 fir
 ## Verification method (as the tool itself should do — G4)
 I rendered `paper.pdf` + every figure to PNG and inspected them, `pdftotext | grep '[?]'`, and reran
 `latexmk` to reproduce the bibtex-skip. All reproducible.
+
+---
+
+## Resolution — Veridraft dev session (2026-07-04, round 2)
+
+Fixed + regression-tested (`tests/test_hatir_fixes.py`, 137 tests / verify 9/9); verified G1/G2 with a
+real natbib+hyperref+bibtex build (healthy build → 0 issues, `.bbl` produced, `/Link` confirmed):
+- **G1 [P0]** — `_verify_compile` judges the FINAL PDF (`pdftotext` → literal `[?]`/`??`), not the
+  multi-pass LOG (which false-positived on every build); `compile_pdf` asserts a non-empty `paper.bbl`
+  when the paper cites and runs an explicit `pdflatex→bibtex→pdflatex×2` recovery if latexmk skipped
+  bibtex; `_self_fix` routes a bibtex-skip to a RECOMPILE (never a backend edit) and the fix prompt
+  forbids deleting `\cite`/`\bibliography`.
+- **G2 [P0]** — clickable cross-refs are a CHECKED property (hyperref loaded + citations resolved),
+  with `/Link` annotation confirmation via a mutool-decompress fallback for compressed PDFs.
+- **G3 [P1]** — plotting skill (`diagram-patterns.md`): mandatory box/arrow layout constraints (real
+  layout engine / min gap / arrow inset / tight-layout+pad / canvas sized to node count) and a hard
+  "NEVER put LaTeX escapes in matplotlib text; sanitize `\_ \& \% \#`" rule (the `fabric\_reduce` leak).
+- **G4 [P1]** — self-verify is no longer log-only: a deterministic **perceptual near-duplicate**
+  figure check (8×8 average-hash, rasterizes pdf/eps) catches resized dups a byte hash misses (folds
+  in round-1 A1/F3), plus a **VLM render-and-LOOK** pass (advisory) when `vision_model` is set.
+- **G5 [P2]** — section-writing skill (`prompt.md`): a comparative/superlative claim ("only", "no
+  prior") now REQUIRES an adjacent sentence naming and distinguishing the closest cited neighbor.
+
+Still deferred: F5 first-class translate/localize engine step (Korean paper/patent still scripted
+outside the harness); auto-FIXING visual figure defects (regenerating figures) beyond detection.

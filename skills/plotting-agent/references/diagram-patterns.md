@@ -112,3 +112,31 @@ g.render(out_path.replace('.png', ''), cleanup=True)
 - Never let arrows cross labels — re-route around.
 - Never use a bitmap background.
 - Always `axis('off')` for diagrams; no spines, no ticks, no grid.
+
+## Layout constraints for box/arrow diagrams (MANDATORY — prevents cramped/overlapping output)
+
+A real HATIR run produced a level-graph whose boxes touched with near-zero gap and whose arrows were
+crushed between them. Obey these so it does not recur:
+
+- **Prefer a real layout engine.** For any graph/tree/DAG of boxes+arrows use **graphviz** (or
+  `networkx` + a layout) rather than hand-placing rectangles. It computes non-overlapping positions.
+- If you hand-place: **minimum inter-box gap ≥ 0.4× box height** (never touching); **arrow endpoints
+  inset from box edges** (start/end ~5–8% away from the border, never flush); route arrows around
+  labels, not through them.
+- **Size the canvas to the content:** `figsize` scales with node count (e.g. ≥ `(6, 1.2*rows)` for a
+  vertical stack); call `fig.tight_layout()` and save with `bbox_inches="tight", pad_inches=0.15`.
+- After rendering, a box or arrow that reaches the figure edge means the canvas is too small — enlarge
+  and re-render.
+
+## NEVER put LaTeX escapes in matplotlib text (escape-leak bug)
+
+The same run leaked `fabric\_reduce` (a literal backslash-underscore) into a caption, because a
+LaTeX-escaped string was passed to a matplotlib label while `text.usetex` was **off** — so `\_`
+rendered verbatim. Rules:
+
+- matplotlib labels/titles/annotations are **plain text by default** — write `fabric_reduce`,
+  `A & B`, `50%`, `#3` directly (NOT `fabric\_reduce`, `A \& B`, `50\%`, `\#3`).
+- Before drawing any text, **sanitize** LaTeX escapes → plain: `s.replace(r"\_","_").replace(r"\&","&")
+  .replace(r"\%","%").replace(r"\#","#").replace(r"\$","$")`.
+- Only if you deliberately set `plt.rcParams["text.usetex"]=True` for the WHOLE figure may LaTeX
+  syntax appear — and then it must be valid LaTeX throughout. Do not mix.

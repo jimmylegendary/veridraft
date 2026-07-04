@@ -131,6 +131,30 @@ class RunnerFixesTest(unittest.TestCase):
         tmp.cleanup()
 
 
+class VisualCheckTest(unittest.TestCase):   # G4 / A1 / F3
+    def test_perceptual_near_dup_detection(self):
+        from PIL import Image
+        tmp = tempfile.TemporaryDirectory(); final = Path(tmp.name); (final / "figures").mkdir()
+        grad = Image.new("L", (64, 64))
+        for x in range(64):
+            for y in range(64):
+                grad.putpixel((x, y), x * 4)          # monotone gradient
+        grad.save(final / "figures" / "a.png")
+        grad.resize((48, 48)).save(final / "figures" / "b.png")     # resized near-dup (byte hash misses)
+        Image.new("L", (64, 64), color=255).save(final / "figures" / "c.png")   # distinct (blank)
+        dups = run._perceptual_near_dups(final)
+        self.assertTrue(any("a.png" in d and "b.png" in d for d in dups))
+        self.assertFalse(any("c.png" in d for d in dups))
+        tmp.cleanup()
+
+    def test_vlm_findings_noop_without_vision_model(self):
+        from PIL import Image
+        tmp = tempfile.TemporaryDirectory(); final = Path(tmp.name); (final / "figures").mkdir()
+        Image.new("L", (8, 8)).save(final / "figures" / "a.png")
+        self.assertEqual(run._vlm_findings({}, final), [])           # no vision_model → no dispatch
+        tmp.cleanup()
+
+
 class SelfFixLoopTest(unittest.TestCase):   # F4
     def _run(self, verify_seq, dispatch_effect=None, max_iters=2):
         tmp = tempfile.TemporaryDirectory(); ws = Path(tmp.name); (ws / "final").mkdir()

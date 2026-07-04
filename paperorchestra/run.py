@@ -201,6 +201,90 @@ def _has_link_annots(pdf: Path) -> bool:
     return False
 
 
+def _fig_ahash(path: Path) -> int | None:
+    """8×8 average-hash of a figure (perceptual). Rasterizes pdf/eps via pdftoppm/mutool first.
+    None if the image can't be read (PIL/tool absent)."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    src = path
+    tmp = None
+    if path.suffix.lower() in (".pdf", ".eps"):
+        tmp = path.with_suffix(".ahash.png")
+        try:
+            if shutil.which("pdftoppm"):
+                subprocess.run(["pdftoppm", "-png", "-singlefile", "-r", "50", str(path),
+                                str(tmp.with_suffix(""))], capture_output=True, timeout=30)
+            elif shutil.which("mutool"):
+                subprocess.run(["mutool", "draw", "-o", str(tmp), "-r", "50", str(path), "1"],
+                               capture_output=True, timeout=30)
+            else:
+                return None
+        except (OSError, subprocess.SubprocessError):
+            return None
+        src = tmp if tmp.exists() else None
+    try:
+        if src is None or not src.exists():
+            return None
+        img = Image.open(src).convert("L").resize((8, 8))
+        px = list(img.getdata())
+        avg = sum(px) / len(px)
+        return sum(1 << i for i, p in enumerate(px) if p >= avg)
+    except Exception:   # noqa: BLE001 — a bad image must not crash the compile
+        return None
+    finally:
+        if tmp is not None and tmp.exists():
+            tmp.unlink()
+
+
+def _perceptual_near_dups(final: Path, threshold: int = 6) -> list[str]:
+    """G4/A1/F3: flag near-identical figures a BYTE hash misses (e.g. a resized crop of another
+    figure). Hamming distance of the 8×8 average-hash ≤ threshold ⇒ near-duplicate."""
+    figs = sorted(p for p in (final / "figures").glob("*")
+                  if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".pdf", ".eps")) \
+        if (final / "figures").exists() else []
+    hashes = [(p.name, _fig_ahash(p)) for p in figs]
+    hashes = [(n, h) for n, h in hashes if h is not None]
+    out = []
+    for i in range(len(hashes)):
+        for j in range(i + 1, len(hashes)):
+            if bin(hashes[i][1] ^ hashes[j][1]).count("1") <= threshold:
+                out.append(f"near-duplicate figures: {hashes[i][0]} ≈ {hashes[j][0]} "
+                           "(perceptually similar — check for a mislabeled/resized dup)")
+    return out
+
+
+def _vlm_findings(cfg: dict, final: Path) -> list[str]:
+    """G4: an actual render-and-LOOK pass. When `vision_model` is set, ask a VLM to inspect the
+    rendered figure images for VISUAL defects the log parser structurally cannot see (overlap,
+    cramped arrows, clipped/illegible text, LaTeX-escape leaks in labels, near-duplicate plots).
+    Returns [] with no vision_model or on any failure — advisory, never blocks the compile."""
+    vm = cfg.get("vision_model")
+    figs = sorted(str(p) for p in (final / "figures").glob("*")
+                  if p.suffix.lower() in (".png", ".jpg", ".jpeg")) if (final / "figures").exists() else []
+    if not vm or not figs:
+        return []
+    prompt = ("LOOK at each figure image below and report VISUAL defects as a JSON array of short "
+              "strings (return [] if none). For each image check: overlapping/cramped elements; text "
+              "touching, clipped, or illegible; arrows crossing or crushed between boxes; a LaTeX-escape "
+              "leak in a label (a literal '\\_', '\\&', '\\%', '\\#'); or two figures that look like "
+              "near-duplicates. Images:\n" + "\n".join(figs) + "\nReturn ONLY the JSON array.")
+    try:
+        out = providers.dispatch({**cfg, "model": vm}, prompt, str(final.parent),
+                                 timeout=(cfg.get("step_timeout_seconds") or 1200))
+    except Exception as e:   # noqa: BLE001
+        log(f"VLM visual check skipped ({e})"); return []
+    i, j = out.find("["), out.rfind("]")
+    if i == -1 or j <= i:
+        return []
+    try:
+        arr = json.loads(out[i:j + 1])
+        return [str(x) for x in arr][:20] if isinstance(arr, list) else []
+    except (ValueError, TypeError):
+        return []
+
+
 def _verify_compile(final: Path) -> list[str]:
     """Deterministic render-and-check (F2/A3/G1). Overfull boxes + missing figures are read from the
     compile LOG (final-pass truths). Unresolved refs/cites are judged from the FINAL PDF's TEXT
@@ -353,7 +437,9 @@ def compile_pdf(ws: Path) -> Path | None:
             return None
     # A3/F4 self-verification (deterministic): clipped tables / missing figures / unresolved cites.
     issues = _verify_compile(final)
-    (final / "verify.json").write_text(json.dumps(issues, indent=2), encoding="utf-8")
+    dups = _perceptual_near_dups(final)   # G4/A1/F3: perceptual near-duplicate figures
+    (final / "verify.json").write_text(
+        json.dumps({"issues": issues, "figure_warnings": dups}, indent=2), encoding="utf-8")
     if issues:
         log(f"SELF-CHECK found {len(issues)} render issue(s) — see final/verify.json:")
         for i in issues:
@@ -361,6 +447,8 @@ def compile_pdf(ws: Path) -> Path | None:
         log("  (fix the offending step / template and recompile; the PDF was produced but is flawed)")
     else:
         log("self-check: no overfull boxes / missing figures / unresolved refs")
+    for d in dups:
+        log(f"  ⚠ {d}")
     # G2: hyperref + resolved citations ⇒ clickable cross-references (checked, not assumed):
     # both conditions are verified deterministically; /Link detection is a bonus confirmation.
     if _needs_bib(tex_src) and "hyperref" in tex_src and "[?]" not in _pdf_text(pdf):
@@ -435,6 +523,16 @@ def main(argv=None) -> int:
         if pdf and cfg.get("self_fix", True) and _verify_compile(ws / "final"):
             _self_fix(cfg, ws, int(cfg.get("self_fix_max_iters", 2)))
             pdf = (ws / "final" / "paper.pdf") if (ws / "final" / "paper.pdf").exists() else None
+        # G4: an actual VLM render-and-LOOK pass (advisory) when a vision_model is configured.
+        if pdf:
+            vlm = _vlm_findings(cfg, ws / "final")
+            for v in vlm:
+                log(f"  👁 VLM: {v}")
+            if vlm:
+                vf = ws / "final" / "verify.json"
+                data = json.loads(vf.read_text()) if vf.exists() else {"issues": [], "figure_warnings": []}
+                data["vlm_findings"] = vlm
+                vf.write_text(json.dumps(data, indent=2), encoding="utf-8")
         log(f"compiled: {pdf}" if pdf else "compile skipped/failed (no final/paper.tex or latexmk issue)")
     log("done")
     return 0

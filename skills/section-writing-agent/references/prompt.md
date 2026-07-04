@@ -114,11 +114,15 @@ statements match correctly (e.g., \begin{{figure*}} must be closed with
 
 ---
 
-## Multimodal call — image inputs
+## Comparative / superlative claims MUST distinguish the closest neighbor
 
-This call should pass the actual figure PNGs as image content blocks
-alongside the text inputs above. The model uses them to (a) verify it isn't
-describing a chart that doesn't exist, (b) write factually-grounded captions,
-(c) accurately interpret what each plot shows in the prose. If your host LLM
-lacks vision, document the degradation in your run report and proceed
-text-only.
+Whenever the prose makes a comparative or superlative novelty claim — "only", "no prior tool",
+"first to", "unlike all existing" — the **very next sentence** must **name and distinguish the
+closest cited work** that a reviewer would raise as the counterexample. Do not leave an "only tool"
+framing standing alone; a reviewer rejects it on the nearest neighbor.
+
+Example (from a real run): the abstract claimed "no prior tool costs a real captured workload against
+a non-existent accelerator." The nearest threat is **Flint** (captures a real workload for
+non-existent hardware) — so Related Work must add: "Flint [cite] also drives non-existent hardware
+from a captured workload, but provides *no cost model* and operates at cluster tier; we differ by
+<the specific delta>." Never state the superlative without this adjacent distinguishing sentence.

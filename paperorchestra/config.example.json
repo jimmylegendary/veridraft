@@ -11,7 +11,7 @@
   "//api_driver": "opencode | aider — the OSS agent CLI that gives the OpenAI-compatible model its tools",
 
   "vision_model": null,
-  "//vision_model": "a VLM for the plotting critique loop + section-writing multimodal call; null => those degrade to text-only",
+  "//vision_model": "a VLM for the plotting critique loop + section-writing multimodal call + the self-verify render-and-LOOK pass (G4); null => those degrade to text-only / deterministic-only",
   "image_model": null,
   "//image_model": "optional text->image model for generated diagrams; null => matplotlib-only figures",
 
