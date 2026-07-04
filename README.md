@@ -151,6 +151,23 @@ Governance is model-free, so the model is a quality/cost choice. Full guidance (
 vs OSS self-host, the optional local Binoculars AI-text RISK detector) in
 [`docs/GUIDE.md`](docs/GUIDE.md).
 
+## Localize into any language
+
+`paperorchestra/translate_run.py` localizes a compiled **paper or patent** into any target language
+over the same `backend.json`:
+
+```bash
+python3 paperorchestra/translate_run.py --config backend.json --workspace <ws> --lang ko
+#  --lang accepts a code (ko), an English name (Korean), or the native name (한국어); --source paper|patent
+```
+
+It reads `final/<source>.tex` and writes+compiles `final/<source>-<code>.tex(.pdf)`. The translation is
+**idiomatic** (rendered in the target language's academic register, not a literal calque) while
+**established technical terms/acronyms stay in English** (attention, throughput, KV cache, …); every
+LaTeX command, `\label`/`\cite` key, number, equation, and figure is preserved verbatim. A CJK target
+(ko/ja/zh) compiles with lualatex + kotex/xeCJK automatically; other non-Latin scripts prefer lualatex.
+Idempotent (`--force` to re-translate) and self-verified (`[?]`/`??` in the localized PDF).
+
 ## Architecture
 
 Hexagonal **ports & adapters**: `source`, `writing_engine`, `patent_engine`, `sink`, `novelty`,

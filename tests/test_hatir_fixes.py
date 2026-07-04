@@ -9,8 +9,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import shutil
+
 import paperorchestra.run as run
 import paperorchestra.patent_run as patent_run
+import paperorchestra.translate_run as translate_run
 import paperorchestra.providers as providers
 from veridraft.config import HarnessConfig
 from veridraft.core.harness import Harness
@@ -190,6 +193,60 @@ class SelfFixLoopTest(unittest.TestCase):   # F4
     def test_stops_when_issues_do_not_decrease(self):
         _, calls, tmp = self._run([["a", "b"], ["a", "b"], ["a", "b"]])
         self.assertEqual(calls["n"], 1)          # 2nd iter sees no decrease → stop, no re-dispatch
+        tmp.cleanup()
+
+
+class TranslateTest(unittest.TestCase):   # F5 multilingual
+    def test_resolve_lang_code_name_native_unknown(self):
+        self.assertEqual(translate_run._resolve_lang("ko")[0], "ko")
+        self.assertEqual(translate_run._resolve_lang("Korean")[0], "ko")
+        self.assertEqual(translate_run._resolve_lang("한국어")[0], "ko")
+        self.assertEqual(translate_run._resolve_lang("Deutsch")[0], "de")
+        code, ent = translate_run._resolve_lang("Klingon")   # unknown → carried through, non-Latin path
+        self.assertEqual(code, "klingon")
+        self.assertEqual(ent[2], "other")
+
+    def test_translate_idempotent_skip(self):
+        tmp = tempfile.TemporaryDirectory(); ws = Path(tmp.name); final = ws / "final"; final.mkdir()
+        (final / "paper.tex").write_text(r"\documentclass{article}\begin{document}x\end{document}")
+        (final / "paper-ko.tex").write_text("한글 " * 80)   # >200 bytes → complete existing translation
+        called = []
+        origd, origc = translate_run.providers.dispatch, translate_run._compile
+        translate_run.providers.dispatch = lambda *a, **k: called.append(1)
+        translate_run._compile = lambda final, stem, prefer_lualatex: None
+        try:
+            translate_run.translate({"backend": "x"}, ws, "ko", "paper", force=False)
+            self.assertEqual(called, [])         # existing translation → no LLM dispatch
+        finally:
+            translate_run.providers.dispatch, translate_run._compile = origd, origc
+        tmp.cleanup()
+
+    def test_technical_terms_kept_english_in_prompt(self):
+        p = translate_run._translate_prompt(Path("/ws"), "paper", "paper-ko", "Korean", "한국어", "cjk")
+        self.assertIn("KEEP established technical terms", p)
+        self.assertIn("PRESERVE ALL LaTeX EXACTLY", p)
+        self.assertIn("IDIOMATIC", p)
+
+    @unittest.skipUnless(shutil.which("lualatex") and shutil.which("latexmk"), "lualatex/latexmk absent")
+    def test_translate_compiles_cjk_via_idempotent_path(self):
+        tmp = tempfile.TemporaryDirectory(); ws = Path(tmp.name); final = ws / "final"; final.mkdir()
+        (final / "paper.tex").write_text(r"\documentclass{article}\begin{document}English.\end{document}")
+        (final / "paper-ko.tex").write_text(
+            r"\documentclass{article}\usepackage[numbers]{natbib}\usepackage{hyperref}"
+            r"\begin{document}" + "한국어 초록 매우 긴 문단 테스트 " * 6 +
+            r"\citep{k1} attention throughput \bibliographystyle{plainnat}\bibliography{refs}\end{document}")
+        (final / "refs.bib").write_text("@book{k1,title={T},author={A,B},year={2020}}\n")
+        called = []
+        orig = translate_run.providers.dispatch
+        translate_run.providers.dispatch = lambda *a, **k: called.append(1)
+        try:
+            rc = translate_run.translate({"backend": "x"}, ws, "ko", "paper", force=False)
+        finally:
+            translate_run.providers.dispatch = orig
+        self.assertEqual(called, [])
+        self.assertTrue((final / "paper-ko.pdf").exists())      # compiled with lualatex+kotex
+        self.assertNotIn("[?]", translate_run.po_run._pdf_text(final / "paper-ko.pdf"))
+        self.assertEqual(rc, 0)
         tmp.cleanup()
 
 

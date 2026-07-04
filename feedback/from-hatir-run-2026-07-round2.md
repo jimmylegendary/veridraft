@@ -117,5 +117,8 @@ real natbib+hyperref+bibtex build (healthy build → 0 issues, `.bbl` produced, 
 - **G5 [P2]** — section-writing skill (`prompt.md`): a comparative/superlative claim ("only", "no
   prior") now REQUIRES an adjacent sentence naming and distinguishing the closest cited neighbor.
 
-Still deferred: F5 first-class translate/localize engine step (Korean paper/patent still scripted
-outside the harness); auto-FIXING visual figure defects (regenerating figures) beyond detection.
+**F5 multilingual translate — DONE:** `paperorchestra/translate_run.py` localizes a paper OR patent
+into any language over the same backend (`--lang ko|Korean|한국어|de|…`), idiomatic + technical terms
+kept in English + LaTeX/keys/numbers preserved; CJK → lualatex+kotex auto, self-verified, idempotent.
+
+Still deferred: auto-FIXING visual figure defects (regenerating figures) beyond detection.
