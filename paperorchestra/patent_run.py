@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -63,25 +64,53 @@ Also add open_items for: 102/103 prior-art search (UNSCREENED here), 101 eligibi
 When done, confirm {ws}/final/patent.tex and {ws}/final/open_items.json exist, then stop."""
 
 
-def draft(cfg: dict, ws: Path) -> int:
-    inputs = ws / "inputs"
-    if not (inputs / "invention.md").exists() or not (inputs / "claims.json").exists():
-        raise SystemExit(f"missing inputs/{{invention.md,claims.json}} in {ws} — run assemble_patent first")
-    (ws / "final").mkdir(parents=True, exist_ok=True)
-    prompt = _PROMPT.format(ws=str(ws))
-    log(f"drafting patent via backend={cfg.get('backend')}")
-    providers.dispatch(cfg, prompt, str(ws), timeout=(cfg.get("step_timeout_seconds") or 2400))
-    tex = ws / "final" / "patent.tex"
-    if not tex.exists():
-        raise SystemExit("backend did not produce final/patent.tex (too weak / wrong workspace)")
-    if not (ws / "final" / "open_items.json").exists():
-        (ws / "final" / "open_items.json").write_text("[]", encoding="utf-8")
-    # compile (fail-closed on shell-escape); a missing latexmk just leaves the .tex for review
+def _pdf_ok(pdf: Path) -> bool:
+    """True iff the PDF is structurally valid (pdfinfo exit 0). If pdfinfo is absent, assume OK."""
+    if not shutil.which("pdfinfo"):
+        return pdf.exists()
     try:
-        subprocess.run(["latexmk", "-pdf", "-no-shell-escape", "-interaction=nonstopmode", "patent.tex"],
-                       cwd=str(ws / "final"), capture_output=True, text=True, timeout=240)
+        return subprocess.run(["pdfinfo", str(pdf)], capture_output=True, timeout=30).returncode == 0
     except (OSError, subprocess.SubprocessError):
-        log("latexmk unavailable/failed — final/patent.tex left for review")
+        return False
+
+
+def _compile_and_validate(final: Path) -> None:
+    """Compile with -no-shell-escape and VALIDATE the PDF — a killed latexmk leaves a corrupt PDF
+    ('Couldn't find trailer dictionary'); recompile once, and never stage a corrupt PDF (E1)."""
+    for attempt in (1, 2):
+        try:
+            subprocess.run(["latexmk", "-pdf", "-no-shell-escape", "-interaction=nonstopmode", "patent.tex"],
+                           cwd=str(final), capture_output=True, text=True, timeout=240)
+        except (OSError, subprocess.SubprocessError):
+            log("latexmk unavailable/failed — final/patent.tex left for review"); return
+        pdf = final / "patent.pdf"
+        if pdf.exists() and _pdf_ok(pdf):
+            return
+        if pdf.exists():
+            pdf.unlink()   # drop a corrupt PDF so nothing downstream stages it
+        log(f"compile attempt {attempt}: patent.pdf missing/corrupt" + (" — retrying" if attempt == 1 else ""))
+
+
+def draft(cfg: dict, ws: Path, force: bool = False) -> int:
+    final = ws / "final"
+    final.mkdir(parents=True, exist_ok=True)
+    tex = final / "patent.tex"
+    # E2 idempotent resume: a complete existing draft is NOT re-dispatched (a 20-min regenerate)
+    # unless --force. This also cheaply re-registers a run killed during compile (E1).
+    if tex.exists() and tex.stat().st_size > 200 and not force:
+        log("existing final/patent.tex found — idempotent resume (skipping the LLM; --force to redraft)")
+    else:
+        inputs = ws / "inputs"
+        if not (inputs / "invention.md").exists() or not (inputs / "claims.json").exists():
+            raise SystemExit(f"missing inputs/{{invention.md,claims.json}} in {ws} — run assemble_patent first")
+        log(f"drafting patent via backend={cfg.get('backend')}")
+        providers.dispatch(cfg, _PROMPT.format(ws=str(ws)), str(ws),
+                           timeout=(cfg.get("step_timeout_seconds") or 2400))
+        if not tex.exists():
+            raise SystemExit("backend did not produce final/patent.tex (too weak / wrong workspace)")
+    if not (final / "open_items.json").exists():
+        (final / "open_items.json").write_text("[]", encoding="utf-8")
+    _compile_and_validate(final)
     log("patent draft ready (final/patent.tex); NEVER filed — attorney review required")
     return 0
 
@@ -91,6 +120,7 @@ def main(argv=None) -> int:
     ap.add_argument("--config", required=True)
     ap.add_argument("--workspace", required=True)
     ap.add_argument("--probe", action="store_true")
+    ap.add_argument("--force", action="store_true", help="redraft even if final/patent.tex exists")
     args = ap.parse_args(argv)
     try:
         cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))
@@ -102,7 +132,7 @@ def main(argv=None) -> int:
         return 0 if ok else 1
     if not ok:
         raise SystemExit(detail)
-    return draft(cfg, Path(os.path.expanduser(args.workspace)).resolve())
+    return draft(cfg, Path(os.path.expanduser(args.workspace)).resolve(), force=args.force)
 
 
 if __name__ == "__main__":

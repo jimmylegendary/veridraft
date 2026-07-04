@@ -19,6 +19,8 @@ import argparse
 import concurrent.futures
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -136,13 +138,85 @@ def run_step(cfg: dict, step, ws: Path) -> str:
     return output
 
 
+_OVERFULL_PT = 5.0   # overfull \hbox wider than this (pt) is a clipped/off-page box
+
+
+def _stage_figures(ws: Path, final: Path) -> None:
+    """Stage EVERY figure type into final/figures/, preserving the `figures/` subdir the
+    \\includegraphics{figures/<name>.pdf|png} paths expect (was: only *.png, flat → missing-figure
+    placeholder boxes). Also warn on byte-identical duplicate figures."""
+    figdst = final / "figures"
+    figdst.mkdir(parents=True, exist_ok=True)
+    seen: dict[str, str] = {}
+    for src in sorted((ws / "figures").glob("*")):
+        if src.is_file() and src.suffix.lower() in (".pdf", ".png", ".jpg", ".jpeg", ".eps"):
+            data = src.read_bytes()
+            (figdst / src.name).write_bytes(data)
+            (final / src.name).write_bytes(data)   # also flat, for \includegraphics{<name>}
+            import hashlib
+            h = hashlib.md5(data).hexdigest()
+            if h in seen:
+                log(f"WARNING: figure {src.name} is byte-identical to {seen[h]} (duplicate — check captions)")
+            else:
+                seen[h] = src.name
+
+
+def _verify_compile(final: Path) -> list[str]:
+    """Deterministic render-and-check over the compile log (F2/A3): overfull boxes, missing-figure
+    placeholders, unresolved refs/citations. Model-independent — catches A2/B3 mechanically."""
+    import re as _re
+    logf = final / "paper.log"
+    txt = logf.read_text(encoding="utf-8", errors="replace") if logf.exists() else ""
+    issues: list[str] = []
+    for m in _re.finditer(r"Overfull \\hbox \(([\d.]+)pt too wide\)", txt):
+        if float(m.group(1)) > _OVERFULL_PT:
+            issues.append(f"overfull hbox {m.group(1)}pt too wide (clipped/off-page table or line)")
+    for m in _re.finditer(r"File [`']?([^'\s]+\.(?:pdf|png|jpg|jpeg|eps))'? not found", txt, _re.I):
+        issues.append(f"missing figure file: {m.group(1)} (placeholder box in the PDF)")
+    if _re.search(r"Reference `[^']+' on page .* undefined", txt) or _re.search(r"There were undefined references", txt):
+        issues.append("unresolved \\ref (?? in the PDF)")
+    if _re.search(r"Citation `[^']+' on page .* undefined", txt) or _re.search(r"Citation .* undefined", txt):
+        issues.append("unresolved \\cite (?? in the PDF)")
+    # de-duplicate + cap the overfull noise
+    seen, out = set(), []
+    for i in issues:
+        k = i.split("(")[0]
+        if k not in seen or "missing figure" in i:
+            seen.add(k); out.append(i)
+    return out
+
+
+def _cjk_prep(tex_path: Path) -> str:
+    """Return the latexmk engine flag. pdflatex can't set non-Latin (e.g. Korean); if the .tex has
+    substantial CJK/Hangul AND lualatex is available, switch to lualatex and inject a CJK package
+    (kotex/xeCJK) when the preamble has none. Fully guarded — no tools ⇒ unchanged pdflatex."""
+    try:
+        src = tex_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "-pdf"
+    cjk = sum(1 for ch in src if 0x1100 <= ord(ch) <= 0x11FF or 0x3000 <= ord(ch) <= 0x9FFF
+              or 0xAC00 <= ord(ch) <= 0xD7A3)
+    if cjk < 20 or not shutil.which("lualatex"):
+        return "-pdf"
+    if not re.search(r"\\usepackage(\[[^\]]*\])?\{(kotex|xeCJK|CJKutf8|fontspec)\}", src):
+        for pkg in ("kotex", "xeCJK"):
+            if shutil.which("kpsewhich") and subprocess.run(
+                    ["kpsewhich", f"{pkg}.sty"], capture_output=True).returncode == 0:
+                src = re.sub(r"(\\documentclass(\[[^\]]*\])?\{[^}]+\})",
+                             r"\1\n\\usepackage{" + pkg + "}", src, count=1)
+                tex_path.write_text(src, encoding="utf-8")
+                log(f"non-Latin text detected → lualatex + \\usepackage{{{pkg}}}")
+                return "-lualatex"
+        log("non-Latin text detected but no kotex/xeCJK found — trying lualatex without a CJK package")
+    return "-lualatex"
+
+
 def compile_pdf(ws: Path) -> Path | None:
     final = ws / "final"
     final.mkdir(exist_ok=True)
-    # stage figures + refs so relative \includegraphics / \bibliography resolve
-    for src in list((ws / "figures").glob("*.png")) + ([ws / "refs.bib"] if (ws / "refs.bib").exists() else []):
-        if src.exists():
-            (final / src.name).write_bytes(src.read_bytes())
+    _stage_figures(ws, final)                       # B3: all figure types → final/figures/
+    if (ws / "refs.bib").exists() and not (final / "refs.bib").exists():
+        (final / "refs.bib").write_bytes((ws / "refs.bib").read_bytes())
     if not (final / "paper.tex").exists():
         return None
     # A backend-written ./latexmkrc (or ./.latexmkrc) is executed by latexmk → arbitrary code even
@@ -150,16 +224,27 @@ def compile_pdf(ws: Path) -> Path | None:
     if any((final / n).exists() for n in ("latexmkrc", ".latexmkrc")):
         log("refusing to compile: a latexmkrc is present in the workspace (code-exec risk)")
         return None
-    if not (final / "refs.bib").exists() and (ws / "refs.bib").exists():
-        (final / "refs.bib").write_bytes((ws / "refs.bib").read_bytes())
+    engine_flag = _cjk_prep(final / "paper.tex")   # F1: non-Latin → lualatex + kotex if available
     try:
-        subprocess.run(["latexmk", "-pdf", "-no-shell-escape", "-interaction=nonstopmode", "paper.tex"],
+        subprocess.run(["latexmk", engine_flag, "-no-shell-escape", "-interaction=nonstopmode", "paper.tex"],
                        cwd=str(final), capture_output=True, text=True, timeout=240)
     except subprocess.TimeoutExpired:
         log("latexmk timed out — a runaway/injected .tex; compile aborted")
         return None
     pdf = final / "paper.pdf"
-    return pdf if pdf.exists() else None
+    if not pdf.exists():
+        return None
+    # A3/F4 self-verification (deterministic): surface clipped tables / missing figures / bad refs.
+    issues = _verify_compile(final)
+    (final / "verify.json").write_text(json.dumps(issues, indent=2), encoding="utf-8")
+    if issues:
+        log(f"SELF-CHECK found {len(issues)} render issue(s) — see final/verify.json:")
+        for i in issues:
+            log(f"  ✗ {i}")
+        log("  (fix the offending step / template and recompile; the PDF was produced but is flawed)")
+    else:
+        log("self-check: no overfull boxes / missing figures / unresolved refs")
+    return pdf
 
 
 def main(argv=None) -> int:

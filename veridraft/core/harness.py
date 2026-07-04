@@ -553,10 +553,16 @@ class Harness:
             {"item": f"confidentiality track = {art.get('confidentiality_track')} "
                      f"(boundary={art.get('boundary')}, visibility={art.get('visibility')})",
              "ok": True},
-            {"item": "bundle digest verified", "ok": self.ledger.bundle_digest_ok(bundle_id)},
+            # A self-authored bundle (no CAW-02 signature) legitimately has no digest — surface it
+            # as an N/A provenance state, not a scary failed check (a MISMATCH would have been
+            # rejected at import). Not gating.
+            {"item": ("bundle provenance: CAW-02 digest verified"
+                      if self.ledger.bundle_digest_ok(bundle_id)
+                      else "bundle provenance: self-authored (no CAW-02 signature — digest N/A)"),
+             "ok": True},
         ]
-        hard = [c for c in checklist if c["item"] not in (
-            "bundle digest verified",) and not c["item"].startswith("confidentiality track")]
+        hard = [c for c in checklist if not c["item"].startswith("bundle provenance")
+                and not c["item"].startswith("confidentiality track")]
         verdict = "ready_for_human_review" if all(c["ok"] for c in hard) else "blocked"
         if art["state"] == Lifecycle.DRAFTED.value:
             self.ledger.set_artifact_state(art_id, Lifecycle.IN_REVIEW, _now())

@@ -66,8 +66,8 @@ def _claude_code(cfg: dict, prompt: str, cwd: str, timeout: int) -> str:
         if isinstance(tools, str):          # a string would spread per-character — normalize
             tools = [t for t in re.split(r"[,\s]+", tools) if t]
         argv += ["--allowedTools", *tools]
-    if cfg.get("claude_disable_mcp"):
-        argv += ["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
+    if cfg.get("claude_disable_mcp", True):   # default ON for claude-code: a nested `claude -p`
+        argv += ["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']   # hangs on MCP init
     return _run(argv, cwd, timeout)
 
 
@@ -104,9 +104,20 @@ def _first_json(s: str):
 
 
 def _codex(cfg: dict, prompt: str, cwd: str, timeout: int) -> str:
-    argv = ["codex", "exec", prompt]
+    # `codex exec` REFUSES to write files without a sandbox/permission grant — and pipeline steps
+    # MUST write files. Writing requires a DELIBERATE consent decision (it disables approvals +
+    # sandbox for the autonomous run), so it is EXPLICIT opt-in config, never a silent default:
+    #   codex_full_access: true   → --dangerously-bypass-approvals-and-sandbox (the only mode that
+    #                               actually writes; use only in a disposable/CI sandbox), or
+    #   codex_sandbox: "workspace-write"  → -s <policy> (may still not write, per the CLI).
+    argv = ["codex", "exec"]
+    if cfg.get("codex_full_access"):
+        argv += ["--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check"]
+    elif cfg.get("codex_sandbox"):
+        argv += ["--skip-git-repo-check", "-s", str(cfg["codex_sandbox"])]
     if cfg.get("model"):
         argv += ["--model", cfg["model"]]
+    argv.append(prompt)
     return _run(argv, cwd, timeout)
 
 

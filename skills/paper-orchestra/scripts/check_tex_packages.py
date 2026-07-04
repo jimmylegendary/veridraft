@@ -117,7 +117,7 @@ def build_fallback_profile(reason: str) -> dict:
         "use_t1_fontenc": False,
         "tex_binary": None,
         "error": reason,
-        "checked_at": datetime.datetime.utcnow().isoformat(),
+        "checked_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
 
 
@@ -157,7 +157,7 @@ def main() -> int:
         "use_microtype": "microtype" in available,
         "use_t1_fontenc": "fontenc" in available,
         "tex_binary": tex_binary,
-        "checked_at": datetime.datetime.utcnow().isoformat(),
+        "checked_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)

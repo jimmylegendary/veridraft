@@ -168,3 +168,27 @@ the deterministic (non-LLM) governance. The claude-code backend, once configured
 `paperorchestra/run.py`: init `--force` (B1); `run_step` backup-then-recreate + refs.bib special-case +
 guarded unlink (B2). **NOT applied (blocked by safety classifier):** the `_codex` sandbox flags (C1) —
 needs a deliberate decision.
+
+---
+
+## Resolution — Veridraft dev session (2026-07-04)
+
+Fixed + regression-tested (`tests/test_hatir_fixes.py`; 129 tests, verify 9/9):
+- **B1/B2** reviewed & kept (init `--force`; run_step backup-then-recreate + refs.bib special-case + guarded unlink).
+- **B3** — `compile_pdf` now stages EVERY figure type (`*.pdf,*.png,*.jpg,*.eps`) into `final/figures/` (subdir preserved).
+- **A1** — byte-identical figure duplicate WARNING at staging (perceptual near-dup: deferred).
+- **A2/F2** — deterministic overfull-hbox detection (from `paper.log`, >5pt).
+- **A3/F4** — deterministic self-verification after compile → `final/verify.json` + loud log for
+  {overfull, missing/placeholder figure, unresolved `\ref`/`\cite`}. (Full auto-FIX re-dispatch loop: deferred — model-dependent.)
+- **C1** — codex write-access is now EXPLICIT opt-in config (`codex_full_access: true` → the
+  `--dangerously-bypass-approvals-and-sandbox` flag; `codex_sandbox: "<policy>"`), never a silent default.
+- **C2** — `claude_disable_mcp` now defaults **true** for the claude-code backend.
+- **D1** — `config.load` WARNS when an engine spec sits at the top level (silently ignored); README uses the `adapters` wrapper + `enabled: true`.
+- **D2** — degraded (no-web) lit-review refs.bib reuse handled (B2 special-case).
+- **E1** — `patent_run` validates the PDF with `pdfinfo` (drops a corrupt one, recompiles once) and is idempotent (re-register without the 20-min regenerate).
+- **E2** — `patent_run` idempotent skip-if-present + `--force`.
+- **E3** — `review` shows "bundle provenance: self-authored (no CAW-02 signature — digest N/A)" (ok), not a scary `[x]`.
+- **E4** — vendored `check_tex_packages.py` uses `datetime.now(UTC)` (no DeprecationWarning).
+- **F1** — non-Latin (Korean/CJK) text → auto-switch to `lualatex` + inject `\usepackage{kotex}`/`xeCJK` (guarded; falls back to pdflatex if the tools are absent).
+
+Deferred (bigger / model-dependent): full self-fix re-dispatch loop (F4), perceptual near-dup + VLM caption check (A1/F3), a first-class translate/localize engine step (F5).

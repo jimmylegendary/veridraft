@@ -131,12 +131,12 @@ four backends from one `backend.json`** (see [`paperorchestra/config.example.jso
 Wire each engine to its runner via the harness config (`po_command` / `patent_command`):
 
 ```jsonc
-"adapters": {
-  "writing_engine": { "id": "paperorchestra", "config": { "po_command":
+"adapters": {                                          // MUST be nested under "adapters" —
+  "writing_engine": { "id": "paperorchestra", "enabled": true, "config": { "po_command":
       ["python3","/abs/paperorchestra/run.py","--config","backend.json","--workspace","{workspace}"] } },
-  "patent_engine":  { "id": "patent-llm", "config": { "patent_command":
+  "patent_engine":  { "id": "patent-llm", "enabled": true, "config": { "patent_command":
       ["python3","/abs/paperorchestra/patent_run.py","--config","backend.json","--workspace","{workspace}"] } }
-}
+}                                                     // a top-level spec is IGNORED (warns on load)
 ```
 
 - **Papers:** the vendored PaperOrchestra pipeline runs over your backend (`bash paperorchestra/setup.sh`

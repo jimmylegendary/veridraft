@@ -40,6 +40,15 @@ class HarnessConfig:
         cfg = cls()
         if path and Path(path).exists():
             raw = json.loads(Path(path).read_text(encoding="utf-8"))
+            # Engine specs MUST be nested under "adapters"; a spec placed at the top level is
+            # silently ignored (the tool falls back to the default engine). Warn loudly (this cost
+            # a full run to debug — see feedback D1).
+            stray = (set(DEFAULT_ADAPTERS) & set(raw))
+            if stray:
+                import sys
+                print(f"WARNING: config {path}: {sorted(stray)} are at the TOP LEVEL and IGNORED — "
+                      f'nest them under "adapters": {{ ... }} or the default engine is used.',
+                      file=sys.stderr)
             merged = json.loads(json.dumps(DEFAULT_ADAPTERS))
             for port, spec in (raw.get("adapters") or {}).items():
                 merged.setdefault(port, {}).update(spec)
