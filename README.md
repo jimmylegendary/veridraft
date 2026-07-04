@@ -168,6 +168,23 @@ LaTeX command, `\label`/`\cite` key, number, equation, and figure is preserved v
 (ko/ja/zh) compiles with lualatex + kotex/xeCJK automatically; other non-Latin scripts prefer lualatex.
 Idempotent (`--force` to re-translate) and self-verified (`[?]`/`??` in the localized PDF).
 
+## Market it — without over-claiming
+
+`paperorchestra/market_run.py` produces a discoverability-optimized **second version** of the paper
+(`final/<source>-marketing.tex(.pdf)`) — the honest manuscript is left untouched, so two versions
+coexist. The revision front-loads the finding, tunes the title/abstract for SEO + LLM-answer-engine
+citability (GEO), and adds keywords + a `<meta>`/JSON-LD kit (`*-marketing.meta.json`).
+
+The copy is model-driven, but a **deterministic honesty gate** (`marketing_lints.py`) runs over it by
+DIFF against the original — anything the marketing version *adds* is the violation:
+
+- **added statistic** (a number the paper/log doesn't contain) → **BLOCKING** (no inflated numbers);
+- **added superlative** ("first", "state-of-the-art", "solves", "proves", …) not already earned in the
+  paper → **advisory** (a human confirms the results substantiate it, or softens it).
+
+So you can market as hard as the evidence allows and not one inch further — *no marketing claim ships
+without a warrant.* (P1: the gate + metadata kit. Roadmap in [`docs/marketing-flow-proposal.md`](docs/marketing-flow-proposal.md).)
+
 ## Architecture
 
 Hexagonal **ports & adapters**: `source`, `writing_engine`, `patent_engine`, `sink`, `novelty`,
