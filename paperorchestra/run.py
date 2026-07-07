@@ -543,6 +543,24 @@ def main(argv=None) -> int:
     # unless inputs/meta.json already supplies it. require_meta:false opts out (tests/CI).
     if pending and cfg.get("require_meta", True):
         meta_info.enforce(ws, "paper", log=log)
+    # Input-sufficiency preflight: a thin-context project must not silently produce a hollow paper.
+    # AUTOFILL gaps (literature, code docs, idea density, diagram figures) are remediated by the
+    # backend GROUNDED-ONLY; NEEDS-HUMAN gaps (experimental numbers…) BLOCK with a report the
+    # driving agent relays to the user. require_preflight:false opts out (tests/CI).
+    if pending and cfg.get("require_preflight", True):
+        import preflight as preflight_mod
+        items = preflight_mod.check(ws, "paper")
+        if any(i["status"] == preflight_mod.AUTOFILL for i in items) and cfg.get("preflight_autofill", True):
+            log("preflight: auto-filling derivable gaps (grounded) before drafting")
+            preflight_mod.remediate(cfg, ws, items)
+            items = preflight_mod.check(ws, "paper")
+        (ws / "preflight.json").write_text(json.dumps(items, indent=2, ensure_ascii=False), encoding="utf-8")
+        human = [i for i in items if i["status"] == preflight_mod.HUMAN]
+        if human:
+            for i in human:
+                log(f"🛑 {i['check']}: {i['detail']}")
+            raise SystemExit(f"preflight: {len(human)} NEEDS-HUMAN input gap(s) — see {ws}/preflight.json; "
+                             "drafting on top of them would produce a hollow paper (exit 5)")
     if cfg.get("parallel_2_3", True) and {2, 3} <= {s[0] for s in pending}:
         s2 = next(s for s in pending if s[0] == 2)
         s3 = next(s for s in pending if s[0] == 3)
