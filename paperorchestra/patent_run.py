@@ -26,6 +26,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import meta_info
 import providers
 
 
@@ -103,9 +104,13 @@ def draft(cfg: dict, ws: Path, force: bool = False) -> int:
         inputs = ws / "inputs"
         if not (inputs / "invention.md").exists() or not (inputs / "claims.json").exists():
             raise SystemExit(f"missing inputs/{{invention.md,claims.json}} in {ws} — run assemble_patent first")
+        # Legal meta (inventors, assignee, jurisdictions, filing type, prior art, public disclosure)
+        # can only come from the human — block and emit questions unless inputs/meta.json has it.
+        if cfg.get("require_meta", True):
+            meta_info.enforce(ws, "patent", log=log)
         log(f"drafting patent via backend={cfg.get('backend')}")
-        providers.dispatch(cfg, _PROMPT.format(ws=str(ws)), str(ws),
-                           timeout=(cfg.get("step_timeout_seconds") or 2400))
+        providers.dispatch(cfg, _PROMPT.format(ws=str(ws)) + meta_info.prompt_block(ws, "patent"),
+                           str(ws), timeout=(cfg.get("step_timeout_seconds") or 2400))
         if not tex.exists():
             raise SystemExit("backend did not produce final/patent.tex (too weak / wrong workspace)")
     if not (final / "open_items.json").exists():

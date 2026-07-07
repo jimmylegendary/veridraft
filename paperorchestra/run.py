@@ -26,6 +26,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # importable as a module or run as a script
+import meta_info
 import providers
 
 # (step_no, key, skill_folder, output_artifact_relpath, writes_paper_content)
@@ -74,6 +75,7 @@ def _step_prompt(cfg: dict, step_no: int, skill: str, output: str, writes: bool,
         p += "Do NOT invent numbers — every value comes verbatim from inputs/experimental_log.md §2. "
     if step_no == 3 and cfg.get("s2_api_key"):
         p += "Use the Semantic Scholar API key from env S2_API_KEY. "
+    p += meta_info.prompt_block(ws, "paper")   # venue/audience/anonymize actually shape the writing
     p += _degrade_notes(cfg)
     p += f"\nWhen done, confirm {output} exists and stop. Do not proceed to other steps."
     return p
@@ -536,6 +538,11 @@ def main(argv=None) -> int:
 
     # Steps 2 and 3 are independent → run concurrently when allowed.
     pending = [s for s in STEPS if args.frm <= s[0] <= args.to]
+    # Before ANY content is written: the human-only meta (venue, double-blind, authors, audience)
+    # must be on record — the driving agent is forced to ask the user (exit 3 + meta.questions.json)
+    # unless inputs/meta.json already supplies it. require_meta:false opts out (tests/CI).
+    if pending and cfg.get("require_meta", True):
+        meta_info.enforce(ws, "paper", log=log)
     if cfg.get("parallel_2_3", True) and {2, 3} <= {s[0] for s in pending}:
         s2 = next(s for s in pending if s[0] == 2)
         s3 = next(s for s in pending if s[0] == 3)

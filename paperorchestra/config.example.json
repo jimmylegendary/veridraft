@@ -27,6 +27,9 @@
   "//parallel_2_3": "run plotting (step 2) and lit-review (step 3) concurrently; set false on single-session backends",
   "step_timeout_seconds": 2400,
 
+  "require_meta": true,
+  "//require_meta": "block drafting until the human-only meta (paper: venue/double-blind/authors/audience; patent: inventors/assignee/jurisdictions/filing-type/prior-art/public-disclosure) is in inputs/meta.json — the runner exits 3 with machine-readable questions the driving agent must ask the user; false opts out",
+
   "self_fix": true,
   "//self_fix": "after compile, feed self-check defects (overfull/clipped tables, missing figures, unresolved refs) back into a bounded backend fix loop; reverts any iteration that regresses",
   "self_fix_max_iters": 2,
