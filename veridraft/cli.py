@@ -95,6 +95,38 @@ def cmd_patentability(args) -> int:
         h.close()
 
 
+def cmd_patent_prior_art(args) -> int:
+    h = _harness(args)
+    try:
+        r = h.patent_prior_art(args.bundle_id, title=args.title)
+        print(f"prior-art search: {r['references']} reference(s)  verdict={r['verdict']}  valid={r['valid']}")
+        for risk in r["anticipation_102_risks"]:
+            print(f"  §102 risk: {risk['reference']} vs {risk['claim']}")
+        for comb in r["obviousness_103_combinations"]:
+            print(f"  §103 combination: {comb['claim']} via {comb['references']}")
+        for f in r["validation"].get("failures", []):
+            print(f"  ✗ {f}")
+        print(f"  ⚠️  {r['note']}")
+        return 0
+    finally:
+        h.close()
+
+
+def cmd_patent_idea(args) -> int:
+    h = _harness(args)
+    try:
+        r = h.patent_idea(args.bundle_id, title=args.title)
+        print(f"patent-idea memo: {r['idea_md']}  complete={r['complete']}")
+        for f in r["failures"]:
+            print(f"  ✗ {f}")
+        for w in r["warnings"][:6]:
+            print(f"  ⚠ {w}")
+        print(f"  {r['note']}")
+        return 0
+    finally:
+        h.close()
+
+
 def cmd_draft_patent(args) -> int:
     h = _harness(args)
     try:
@@ -391,8 +423,18 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("draft", help="run the writing engine")
     s.add_argument("bundle_id"); s.set_defaults(func=cmd_draft)
 
-    s = sub.add_parser("patentability", help="patentability screen over gated claims")
+    s = sub.add_parser("patentability", help="patentability screen over gated claims (folds in prior-art)")
     s.add_argument("bundle_id"); s.set_defaults(func=cmd_patentability)
+
+    s = sub.add_parser("patent-prior-art", help="element-level prior-art search (leads to distinguish; never a clearance)")
+    s.add_argument("bundle_id")
+    s.add_argument("--title", default="Invention")
+    s.set_defaults(func=cmd_patent_prior_art)
+
+    s = sub.add_parser("patent-idea", help="pre-filing idea memo: core concept + patentability case + concept figures")
+    s.add_argument("bundle_id")
+    s.add_argument("--title", default="Invention")
+    s.set_defaults(func=cmd_patent_idea)
 
     s = sub.add_parser("draft-patent", help="draft a patent application from gated claims (needs_human)")
     s.add_argument("bundle_id")

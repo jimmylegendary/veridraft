@@ -9,11 +9,15 @@ A `no-go` verdict blocks drafting exactly as a failed evidence gate does.
 """
 from __future__ import annotations
 
+from . import priorart as priorart_mod
 from .models import Claim, ClaimType, PatentabilityVerdict
 
 
-def screen(claims: list[Claim], prior_art: list[dict] | None = None) -> dict:
-    prior_art = prior_art or []
+def screen(claims: list[Claim], prior_art=None) -> dict:
+    """`prior_art` may be the full priorart.json dict (from a prior-art search), a bare list of
+    reference dicts, or None. A search only ever surfaces LEADS to distinguish — it never clears."""
+    pa_dict = prior_art if isinstance(prior_art, dict) else None
+    refs = (pa_dict.get("references") if pa_dict else prior_art) or []
     substrate = [c for c in claims if c.type in (ClaimType.P1, ClaimType.P2)]
     projections = [c for c in claims if c.type is ClaimType.P3]
 
@@ -42,14 +46,16 @@ def screen(claims: list[Claim], prior_art: list[dict] | None = None) -> dict:
     else:
         verdict = PatentabilityVerdict.RECOMMEND
 
-    # 102/103 novelty: harness only surfaces prior-art to DISTINGUISH; no single ref may
-    # disclose all elements. With no prior-art adapter wired, this is advisory.
-    if prior_art:
-        notes.append(f"{len(prior_art)} prior-art ref(s) to distinguish (102/103): ensure ≥1 "
-                     f"claim element is absent from every single reference.")
+    # 102/103 novelty: surface prior-art to DISTINGUISH; a search NEVER establishes novelty.
+    if pa_dict is not None:
+        notes.extend(priorart_mod.summary_notes(pa_dict))
+    elif refs:
+        notes.append(f"{len(refs)} prior-art ref(s) to distinguish (102/103): ensure ≥1 "
+                     f"claim element is absent from every single reference. "
+                     + priorart_mod.MANDATORY_OPEN_ITEM)
     else:
-        notes.append("no prior-art adapter wired: 102/103 novelty is UNSCREENED — a human/prior-art "
-                     "search must confirm before filing (open_item).")
+        notes.append("no prior-art search run: 102/103 novelty is UNSCREENED — run `patent-prior-art` "
+                     "and a human/professional search must confirm before filing (open_item).")
     notes.append("101 eligibility (esp. software/AI abstract-idea) is a LEGAL determination — deferred to counsel.")
     if design_doc_only:
         notes.append(f"design-doc-only substrate (no result ref): {design_doc_only} — patentable on "

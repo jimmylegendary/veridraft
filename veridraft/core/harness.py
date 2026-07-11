@@ -7,6 +7,7 @@ run_review, plus get_lifecycle / list_adapters / preflight.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,7 +17,9 @@ from . import assemble_patent as assemble_patent_mod
 from . import confidentiality as conf_mod
 from . import gate as gate_mod
 from . import lints as lints_mod
+from . import patent_idea as patent_idea_mod
 from . import patentability as patentability_mod
+from . import priorart as priorart_mod
 from . import readiness as readiness_mod
 from . import registry
 from .ledger import Ledger
@@ -689,28 +692,84 @@ class Harness:
         if not gated or not gated["claim_ids"]:
             raise RuntimeError(f"no gated claim set for {bundle_id!r} — run_gate first")
         claims = [c for c in (self.ledger.get_claim(cid) for cid in gated["claim_ids"]) if c]
-        return patentability_mod.screen(claims)
+        # fold in a prior-art search if one has been run (patent-prior-art writes inputs/priorart.json)
+        return patentability_mod.screen(claims, prior_art=priorart_mod.load(self._patent_workspace(bundle_id)))
+
+    def patent_prior_art(self, bundle_id: str, title: str = "Invention") -> dict:
+        """Run an element-level prior-art search over the gated claims (patent-prior-art op). Writes
+        <ws>/inputs/priorart.json; feeds patentability. NEVER a clearance — leads to distinguish only."""
+        ws, claims, _results, _screen = self._assemble_patent_inputs(bundle_id, title)
+        engine = self._adapter("patent_engine")
+        if not hasattr(engine, "search_prior_art"):
+            raise RuntimeError(f"patent_engine adapter {engine!r} has no prior-art search")
+        engine.search_prior_art(str(ws))
+        pa = priorart_mod.load(ws) or {}
+        report = priorart_mod.validate(pa) if pa else {"passed": False, "failures": ["no priorart.json produced"], "warnings": []}
+        analysis = priorart_mod.analyze(pa) if pa else {}
+        self.ledger.append_lifecycle_event(
+            self._patent_artifact_id(bundle_id), None, Lifecycle.DRAFTED.value, actor="system", now=_now(),
+            reason="prior-art-search",
+            detail={"references": len(pa.get("references", [])), "verdict": pa.get("verdict"),
+                    "anticipation_102_risks": len(analysis.get("anticipation_102_risks", []))}) \
+            if self.ledger.get_artifact(self._patent_artifact_id(bundle_id)) else None
+        return {"references": len(pa.get("references", [])), "verdict": pa.get("verdict"),
+                "anticipation_102_risks": analysis.get("anticipation_102_risks", []),
+                "obviousness_103_combinations": analysis.get("obviousness_103_combinations", []),
+                "open_items": pa.get("open_items", []), "valid": report["passed"],
+                "validation": report,
+                "note": "Prior art = LEADS to distinguish; a professional search + attorney remain "
+                        "MANDATORY (this is never a novelty clearance)."}
+
+    def patent_idea(self, bundle_id: str, title: str = "Invention") -> dict:
+        """Draft the pre-filing patent-idea memo (core concept + per-requirement patentability case +
+        concept figures) BEFORE the full application. Deterministic completeness gate; never files."""
+        ws, _claims, _results, _screen = self._assemble_patent_inputs(bundle_id, title)
+        engine = self._adapter("patent_engine")
+        if not hasattr(engine, "draft_idea"):
+            raise RuntimeError(f"patent_engine adapter {engine!r} has no patent-idea drafter")
+        engine.draft_idea(str(ws), title)
+        idea_dir = ws / "idea"
+        md = (idea_dir / "patent_idea.md").read_text(encoding="utf-8") if (idea_dir / "patent_idea.md").exists() else ""
+        case = {}
+        cp = idea_dir / "patentability_case.json"
+        if cp.exists():
+            try:
+                case = json.loads(cp.read_text(encoding="utf-8"))
+            except ValueError:
+                case = {}
+        report = patent_idea_mod.completeness(md, case, priorart_mod.load(ws))
+        return {"idea_md": str(idea_dir / "patent_idea.md"),
+                "patentability_case": str(cp) if cp.exists() else None,
+                "complete": report["passed"], "failures": report["failures"],
+                "warnings": report["warnings"],
+                "note": "Pre-filing idea memo — argues a patentability CASE, not a conclusion; a "
+                        "professional search + attorney review remain mandatory before filing."}
+
+    def _assemble_patent_inputs(self, bundle_id: str, title: str):
+        """Shared: assemble the patent workspace inputs/ from gated claims (idempotent; preserves any
+        priorart.json already written). Returns (ws, claims, results, screen)."""
+        gated = self.ledger.get_gated_set(self._gated_set_id(bundle_id))
+        if not gated or not gated["claim_ids"]:
+            raise RuntimeError(f"no gated claim set for {bundle_id!r} — run_gate first "
+                               f"(use the us-utility-patent profile so P3 claims are admitted)")
+        claims = [c for c in (self.ledger.get_claim(cid) for cid in gated["claim_ids"]) if c]
+        results = self.ledger.get_results(bundle_id)
+        bundle = self.ledger.get_bundle(bundle_id) or {}
+        context = (bundle.get("provenance_manifest") or {}).get("topic", "")
+        ws = self._patent_workspace(bundle_id)
+        screen = patentability_mod.screen(claims, prior_art=priorart_mod.load(ws))
+        assemble_patent_mod.assemble_patent_inputs(str(ws), claims, results, title, context, screen)
+        return ws, claims, results, screen
 
     def draft_patent(self, bundle_id: str, title: str = "Invention") -> dict:
         pf = self.preflight(["source", "patent_engine", "sink"])
         if not pf.ok:
             raise RuntimeError("preflight failed: " + "; ".join(
                 f"{i.port}/{i.adapter_id}: {i.detail}" for i in pf.failures()))
-        gated = self.ledger.get_gated_set(self._gated_set_id(bundle_id))
-        if not gated or not gated["claim_ids"]:
-            raise RuntimeError(f"no gated claim set for {bundle_id!r} — run_gate first "
-                               f"(use the us-utility-patent profile so P3 claims are admitted)")
-        claims = [c for c in (self.ledger.get_claim(cid) for cid in gated["claim_ids"]) if c]
-
-        screen = patentability_mod.screen(claims)
+        # assemble inputs/ (folding in any prior-art search already run) and screen for go/no-go
+        ws, claims, results, screen = self._assemble_patent_inputs(bundle_id, title)
         if screen["verdict"] == "no-go":
             raise RuntimeError("patentability screen NO-GO: " + " ".join(screen["rationale"]))
-
-        results = self.ledger.get_results(bundle_id)
-        bundle = self.ledger.get_bundle(bundle_id) or {}
-        context = (bundle.get("provenance_manifest") or {}).get("topic", "")
-        ws = self._patent_workspace(bundle_id)
-        assemble_patent_mod.assemble_patent_inputs(str(ws), claims, results, title, context, screen)
 
         engine = self._adapter("patent_engine")
         out = engine.draft_patent(str(ws))
@@ -727,7 +786,7 @@ class Harness:
         dest = sink.publish(art_id, outs, str(self.data_dir / "artifacts"))
         # patents are confidential by default (counsel audience); mark the track accordingly
         self.ledger.upsert_artifact(
-            art_id, type="patent", state=Lifecycle.DRAFTED, gated_set_id=gated["id"], now=_now(),
+            art_id, type="patent", state=Lifecycle.DRAFTED, gated_set_id=self._gated_set_id(bundle_id), now=_now(),
             engine_run_id=run_id, output_ref=dest,
             confidentiality_track="internal-review-required", boundary="confidential", visibility="team")
         self.ledger.append_lifecycle_event(

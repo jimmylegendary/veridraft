@@ -21,6 +21,7 @@ from ..core.models import EngineOutput
 from ..core.pdf import write_text_pdf
 from ..core.registry import register
 from ..ports import AdapterCapabilities, HealthStatus, Maturity
+from ._patent_degraded import _write_degraded_priorart, _write_skeleton_idea
 
 
 @register(port="patent_engine", id="minimal-patent")
@@ -41,6 +42,17 @@ class MinimalPatentEngineAdapter:
 
     def screen(self, claim_ids: list[str]) -> dict:
         return {}  # the harness owns the patentability screen (core/patentability.py)
+
+    def search_prior_art(self, workspace: str) -> dict:
+        """No LLM → no search. Write an HONEST empty prior-art record (mandatory open item, never a
+        clearance) so the pre-draft step is whole offline; a real search needs the patent-llm engine."""
+        return {"priorart": _write_degraded_priorart(workspace, "minimal-patent engine has no model"),
+                "degraded": True}
+
+    def draft_idea(self, workspace: str, title: str = "Invention") -> dict:
+        """No LLM → a skeleton idea memo (all sections as TODO + verbatim boundary); needs completion."""
+        return {"idea": _write_skeleton_idea(workspace, title, "minimal-patent engine has no model"),
+                "degraded": True}
 
     def draft_patent(self, workspace: str) -> EngineOutput:
         ws = Path(workspace)
