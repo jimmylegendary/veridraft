@@ -62,7 +62,10 @@ def completeness(idea_md: str, case: dict, priorart: dict | None = None) -> dict
     for sec in REQUIRED_SECTIONS:
         if not _has_section(md, sec):
             failures.append(f"missing section: ## {sec}")
-    if BOUNDARY_STATEMENT not in re.sub(r"\s+", " ", md):
+    # strip line-leading Markdown blockquote/list markers before matching so a boundary rendered as
+    # a "> ..." blockquote still counts as verbatim
+    norm = re.sub(r"\s+", " ", re.sub(r"(?m)^\s*(?:>+|[-*])\s?", "", md))
+    if BOUNDARY_STATEMENT not in norm:
         failures.append("the verbatim Boundary Statement is missing (an idea memo must state its limit)")
 
     reqs = {r.get("requirement"): r for r in (case.get("requirements") or []) if isinstance(r, dict)} \
@@ -72,9 +75,10 @@ def completeness(idea_md: str, case: dict, priorart: dict | None = None) -> dict
         if not r:
             failures.append(f"patentability_case missing requirement: {key}")
             continue
-        if not (r.get("basis") or "").strip():
+        basis = r.get("basis")
+        if not (basis if isinstance(basis, str) else "").strip():
             failures.append(f"{key}: empty `basis` (state the evidence/argument)")
-        if not (r.get("grounded_in") or []):
+        if not isinstance(r.get("grounded_in"), list) or not r.get("grounded_in"):
             failures.append(f"{key}: empty `grounded_in` (point at a section/figure/prior-art/artifact)")
         if key in _MUST_DEFER and not (r.get("open_items") or []):
             failures.append(f"{key}: `open_items` must be non-empty — an idea memo cannot settle "

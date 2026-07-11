@@ -54,6 +54,27 @@ class ReferenceContextTest(unittest.TestCase):
         self.assertLess(len(w), 400)                                     # not the whole page
         self.assertIn("Figure 2", w)
 
+    def test_window_includes_following_sentence(self):
+        txt = "Intro sentence. See Figure 5 now. The next sentence follows here."
+        w = ef.sentence_window(txt, txt.index("Figure 5"), txt.index("Figure 5") + 8, context_chars=300)
+        self.assertIn("next sentence follows", w)                        # neighbour AFTER included
+
+    def test_multi_figure_range_and_conjunction_refs(self):
+        txt = "See Figures 2 and 3 for details. Figs. 4-6 summarize. Figure 7a shows the inset."
+        for want in ("2", "3", "4", "5", "6", "7"):
+            self.assertEqual(len(ef.find_references(want, [txt], {0: []}, 60)), 1, f"fig {want} dropped")
+
+    def test_singular_figure_does_not_pull_conjunction(self):
+        txt = "Figure 2 and 3 steps were executed in sequence."          # singular → "3 steps" is not a fig
+        self.assertEqual(ef.find_references("3", [txt], {0: []}, 60), [])
+
+    def test_cross_caption_reference_excluded(self):
+        page = ("Figure 1: Overview of the system.\n"
+                "Figure 2: Comparison to Figure 1 baseline results shown here.")
+        spans = [(m.start(), ef._caption_extent(page, m.end()))
+                 for m in ef._CAPTION_HEAD.finditer(page) if ef.is_caption(page[m.start():m.start()+200])]
+        self.assertEqual(ef.find_references("1", [page], {0: spans}, 60), [])   # not a body ref
+
 
 @unittest.skipUnless(shutil.which("pdftotext") and shutil.which("latexmk"),
                      "needs latexmk + poppler for the end-to-end PDF path")

@@ -92,6 +92,26 @@ class OverlapGeometryTest(unittest.TestCase):
             d.text((520, 470), "accelerator 12", fill=0)
         self.assertEqual(pf._overlap_defects(_png(f), "t.png"), [])
 
+    def test_resolution_tolerant_no_false_positive_and_detects_across_dpi(self):
+        # SAME physical layout rendered at multiple DPIs: clean stays clean; a tight channel is
+        # flagged across the realistic raster range (guards the 150px sub-1000 false-negative fix).
+        def render(kind, W):
+            H = int(W * 0.75)
+            img = Image.new("L", (W, H), 255)
+            d = ImageDraw.Draw(img); s = W / 800.0
+            def R(x0, y0, x1, y1): d.rectangle([x0*s, y0*s, x1*s, y1*s], outline=0, width=max(1, round(2*s)))
+            if kind == "clean":
+                R(80, 80, 240, 180); R(560, 420, 720, 520)
+                d.line([240*s, 130*s, 560*s, 470*s], fill=0, width=max(1, round(2*s)))
+                d.text((150*s, 210*s), "proc 10", fill=0)
+            else:  # two boxes with a ~3px physical channel between them
+                R(200, 200, 360, 320); R(363, 200, 520, 320)
+            p = Path(tempfile.mkdtemp()) / "f.png"; img.save(p); return p
+        for W in (640, 800, 1000):
+            self.assertEqual(pf._overlap_defects(render("clean", W), "c"), [], f"clean@{W} false-positive")
+            self.assertTrue(any("too close" in i for i in pf._overlap_defects(render("tight", W), "t")),
+                            f"tight channel missed @{W}")
+
     def test_no_numpy_degrades_to_empty(self):
         real = pf._numpy
         pf._numpy = lambda: None

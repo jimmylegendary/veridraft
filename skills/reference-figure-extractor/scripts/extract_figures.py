@@ -27,8 +27,40 @@ import shutil
 import subprocess
 from pathlib import Path
 
-# "Figure 3", "Fig. 3", "Figs 3-4", "Figure 3a" — capture the leading number(+optional letter).
-_FIG_TOKEN = re.compile(r"\b(?:fig(?:ure)?s?)\.?\s*(\d+[a-z]?)", re.I)
+# "Figure 3", "Fig. 3", "Figs 3-4", "Figures 2 and 3", "Figure 3a" — capture the prefix (group 1,
+# for plurality) and the whole trailing reference LIST (group 2: number, optionally followed by
+# ranges/conjunctions), so a figure cited only via a range/conjunction is not dropped.
+_FIG_TOKEN = re.compile(
+    r"\b(fig(?:ure)?s?)\.?\s*(\d+[a-z]?(?:\s*(?:[-–—]|,|and|&|to|through)\s*\d+[a-z]?)*)", re.I)
+_RANGE = re.compile(r"(\d+)\s*(?:[-–—]|to|through)\s*(\d+)", re.I)
+
+
+def _expand_figrefs(prefix: str, group: str) -> set[str]:
+    """Normalized figure numbers a mention refers to. Ranges ('2-4') always expand; conjunctions
+    ('2 and 3') expand only for a PLURAL prefix ('Figures'/'Figs'), so a singular 'Figure 2 and 3
+    steps' does not spuriously pull in figure 3."""
+    out: set[str] = set()
+    for a, b in _RANGE.findall(group):
+        ai, bi = int(a), int(b)
+        if 0 <= bi - ai <= 30:
+            out.update(str(n) for n in range(ai, bi + 1))
+    nums = re.findall(r"\d+[a-z]?", group)
+    if nums:
+        out.add(_norm_fig(nums[0]))                       # the head number always
+        if prefix.rstrip(".").lower().endswith("s"):      # plural → include the conjoined numbers
+            out.update(_norm_fig(n) for n in nums[1:])
+    return out
+
+
+def _caption_extent(text: str, body_start: int, cap: int = 500) -> int:
+    """End offset of a caption: through its first sentence (where cross-figure mentions live), but
+    never past the next caption head — so 'Figure 2: compared to Figure 1' excludes that 'Figure 1'
+    from figure 1's body references without swallowing real body prose after the caption."""
+    seg = text[body_start:body_start + cap]
+    sm = re.search(r"[.!?][)\]]?\s", seg)
+    end = body_start + (sm.end() if sm else len(seg))
+    nxt = _CAPTION_HEAD.search(text, body_start)
+    return min(end, nxt.start()) if (nxt and nxt.start() > body_start) else end
 # A caption line/BLOCK starts (at a line start, possibly indented for a centered caption) with a
 # figure number then a REQUIRED separator (colon/period/paren/dash) then descriptive text. The
 # separator is what distinguishes a real caption ("Figure 1: ...") from a body line that merely
@@ -85,7 +117,7 @@ def sentence_window(text: str, start: int, end: int, context_chars: int = 350) -
     while hi + 1 < len(bounds) - 1 and bounds[hi + 1] < end:
         hi += 1
     s = max(0, bounds[lo - 1]) if lo > 0 else 0
-    e = bounds[min(hi + 1, len(bounds) - 1)]
+    e = bounds[min(hi + 2, len(bounds) - 1)]        # include the FOLLOWING sentence too (neighbours)
     # character cap around the actual reference span
     s = max(s, start - context_chars)
     e = min(e, end + context_chars)
@@ -100,7 +132,7 @@ def find_references(fig_no: str, page_texts: list[str], caption_spans: dict[int,
     want = _norm_fig(fig_no)
     for pi, txt in enumerate(page_texts):
         for m in _FIG_TOKEN.finditer(txt):
-            if _norm_fig(m.group(1)) != want:
+            if want not in _expand_figrefs(m.group(1), m.group(2)):   # handles ranges/conjunctions
                 continue
             if any(a <= m.start() < b for a, b in caption_spans.get(pi, [])):
                 continue
@@ -177,44 +209,52 @@ def extract(pdf_path: str, out_dir: str, context_chars: int = 350, zoom: float =
     if fitz is None:
         return _extract_text_only(pdf, out, figs_dir, context_chars)
 
-    doc = fitz.open(pdf_path)
-    page_texts: list[str] = []
-    per_page_blocks = []
-    caption_spans: dict[int, list[tuple[int, int]]] = {}
-    for pno in range(doc.page_count):
-        page = doc[pno]
-        blocks, full = _blocks_and_text(page)
-        per_page_blocks.append((page, blocks))
-        page_texts.append(full)
-        spans = []
-        for m in _CAPTION_HEAD.finditer(full):
-            if is_caption(full[m.start():m.start() + 220]):
-                spans.append((m.start(), m.end()))   # exclude ONLY the caption's own "Figure N" token
-        caption_spans[pno] = spans
+    try:
+        doc = fitz.open(pdf_path)
+        page_texts: list[str] = []
+        per_page_blocks = []
+        caption_spans: dict[int, list[tuple[int, int]]] = {}
+        for pno in range(doc.page_count):
+            page = doc[pno]
+            blocks, full = _blocks_and_text(page)
+            per_page_blocks.append((page, blocks))
+            page_texts.append(full)
+            spans = []
+            for m in _CAPTION_HEAD.finditer(full):
+                if is_caption(full[m.start():m.start() + 220]):
+                    # exclude the caption HEAD + its first sentence (where cross-figure mentions live)
+                    spans.append((m.start(), _caption_extent(full, m.end())))
+            caption_spans[pno] = spans
+    except Exception as e:   # noqa: BLE001 — corrupt/encrypted/truncated PDF: degrade, don't crash
+        return _extract_text_only(pdf, out, figs_dir, context_chars)
 
     records: list[dict] = []
     seen: set[str] = set()
     for pno, (page, blocks) in enumerate(per_page_blocks):
         for (x0, y0, x1, y1, text) in blocks:
             fig_no = is_caption(text)
-            if not fig_no or fig_no in seen:
+            if not fig_no:
                 continue
-            seen.add(fig_no)
+            head = _CAPTION_HEAD.match(text)
+            raw = head.group(1) if head else fig_no          # raw token ("3a") keeps subfigures distinct
+            if raw in seen:
+                continue
+            seen.add(raw)
             caption = re.sub(r"\s+", " ", text).strip()[:1200]
             image_rel = None
             clip = _figure_clip(fitz, page, (x0, y0, x1, y1))
             if clip is not None:
                 try:
                     pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip)
-                    name = f"fig{fig_no}.png"
+                    name = f"fig{raw}.png"
                     pix.save(str(figs_dir / name))
                     image_rel = f"figures/{name}"
                 except Exception:  # noqa: BLE001
                     image_rel = None
-            refs = find_references(fig_no, page_texts, caption_spans, context_chars)
+            refs = find_references(raw, page_texts, caption_spans, context_chars)   # normalizes internally
             records.append({
-                "figure_id": f"fig{fig_no}",
-                "figure_number": fig_no,
+                "figure_id": f"fig{raw}",
+                "figure_number": raw,
                 "caption": caption,
                 "image": image_rel,
                 "references": refs,             # (2) in-text reference context, windowed
@@ -280,14 +320,15 @@ def _extract_text_only(pdf: Path, out: Path, figs_dir: Path, context_chars: int)
     for pi, txt in enumerate(page_texts):
         spans = []
         for m in _CAPTION_HEAD.finditer(txt):
-            fno = is_caption(txt[m.start():m.start() + 300])
-            if fno:
-                spans.append((m.start(), m.end()))   # exclude ONLY the caption's own "Figure N" token
-                captions.setdefault(fno, (pi, re.sub(r"\s+", " ", txt[m.start():m.start() + 400]).strip()))
+            if is_caption(txt[m.start():m.start() + 300]):
+                # exclude the caption HEAD + its first sentence (cross-figure mentions live there)
+                spans.append((m.start(), _caption_extent(txt, m.end())))
+                raw = m.group(1)                     # raw token ("3a") keeps subfigures distinct
+                captions.setdefault(raw, (pi, re.sub(r"\s+", " ", txt[m.start():m.start() + 400]).strip()))
         caption_spans[pi] = spans
     records = []
     for fno, (pi, cap) in captions.items():
-        refs = find_references(fno, page_texts, caption_spans, context_chars)
+        refs = find_references(fno, page_texts, caption_spans, context_chars)   # normalizes internally
         image_rel = _page_images(pdf, pi + 1, figs_dir, fno)
         records.append({"figure_id": f"fig{fno}", "figure_number": fno, "caption": cap,
                         "image": image_rel, "references": refs, "reference_count": len(refs),

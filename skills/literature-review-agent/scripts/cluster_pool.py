@@ -49,17 +49,24 @@ def _cos(a: dict, b: dict) -> float:
     return sum(x * b.get(t, 0.0) for t, x in a.items())
 
 
+def _unit(vec: dict) -> dict:
+    norm = math.sqrt(sum(x * x for x in vec.values())) or 1.0
+    return {t: x / norm for t, x in vec.items()}
+
+
 def cluster(papers: list[dict], sim_threshold: float = 0.12, max_clusters: int = 12) -> list[dict]:
     """Greedy cosine clustering over TF-IDF vectors. Deterministic in input order."""
     if not papers:
         return []
     docs = [_tokens(p) for p in papers]
     vecs, _ = _tfidf(docs)
-    clusters: list[dict] = []               # {centroid, members:[idx]}
+    clusters: list[dict] = []               # {centroid(sum of unit vecs), members:[idx]}
     for i, v in enumerate(vecs):
         best, bj = 0.0, -1
         for j, cl in enumerate(clusters):
-            s = _cos(v, cl["centroid"])
+            # compare against the UNIT-normalized centroid, else cosine grows with cluster size
+            # and the fixed threshold collapses everything into one mega-cluster
+            s = _cos(v, _unit(cl["centroid"]))
             if s > best:
                 best, bj = s, j
         if bj >= 0 and best >= sim_threshold and len(clusters) >= 1:
@@ -87,9 +94,10 @@ def by_field(papers: list[dict]) -> list[dict]:
     """Coarse buckets by primary field of study (when S2 supplies them)."""
     buckets: dict[str, list] = {}
     for p in papers:
-        fos = (p.get("fieldsOfStudy") or []) or [
-            d.get("category") for d in (p.get("s2FieldsOfStudy") or []) if isinstance(d, dict)]
-        key = (fos[0] if fos else "Uncategorized")
+        fos = [f for f in (p.get("fieldsOfStudy") or []) if f] or [
+            d.get("category") for d in (p.get("s2FieldsOfStudy") or [])
+            if isinstance(d, dict) and d.get("category")]
+        key = fos[0] if fos else "Uncategorized"   # never bucket under a None field
         buckets.setdefault(key, []).append(p.get("paperId") or p.get("title"))
     return sorted(({"field": k, "size": len(v), "paper_ids": v} for k, v in buckets.items()),
                   key=lambda b: -b["size"])

@@ -28,6 +28,32 @@ class PriorArtAnalysisTest(unittest.TestCase):
         self.assertIn("NOT established", a["obviousness_103_combinations"][0]["motivation_to_combine"])
 
 
+class PriorArtRobustnessTest(unittest.TestCase):
+    def test_malformed_disclosed_elements_does_not_crash(self):
+        # a model may emit disclosed_elements / its per-claim value / claim_elements as non-dicts
+        for pa in (
+            {"claim_elements": {"C1": ["a", "b"]}, "references": [{"id": "R", "disclosed_elements": "oops"}]},
+            {"claim_elements": {"C1": ["a"]}, "references": [{"id": "R", "disclosed_elements": {"C1": "disclosed"}}]},
+            {"claim_elements": ["not", "a", "dict"], "references": [{"id": "R"}]},
+            {"claim_elements": {"C1": ["a"]}, "references": "not a list"},
+        ):
+            a = priorart.analyze(pa)                                     # must not raise
+            self.assertIn("anticipation_102_risks", a)
+
+    def test_low_risk_clearance_is_still_stripped(self):
+        pa = {"references": [], "open_items": ["free to file, low risk", "the invention is patentable"]}
+        priorart.enforce_honesty(pa)
+        self.assertFalse(any("free to file" in i for i in pa["open_items"]))   # escape hatch removed
+        self.assertFalse(any("is patentable" in i for i in pa["open_items"]))
+
+    def test_legit_gap_items_mentioning_patentable_survive(self):
+        pa = {"references": [], "open_items": ["assess §101 patentable subject matter with counsel",
+                                               "conduct a novelty search"]}
+        priorart.enforce_honesty(pa)
+        self.assertTrue(any("patentable subject matter" in i for i in pa["open_items"]))
+        self.assertTrue(any("novelty search" in i for i in pa["open_items"]))
+
+
 class PriorArtHonestyTest(unittest.TestCase):
     def test_verdict_forced_and_mandatory_open_item_injected(self):
         pa = {"references": [], "open_items": ["the invention is novel and clear to file"]}
@@ -42,6 +68,16 @@ class PriorArtHonestyTest(unittest.TestCase):
         self.assertFalse(r["passed"])
         self.assertTrue(any("verdict must be" in f for f in r["failures"]))
         self.assertTrue(any("professional-search" in f for f in r["failures"]))
+
+    def test_forbidden_regex_does_not_strip_unclear_gap_items(self):
+        pa = {"references": [], "open_items": [
+            "the invention is novel and clear to file",          # clearance → must be stripped
+            "the scope of element X is unclear",                 # legit gap → must be kept
+            "§102 anticipation risk on R1"]}                     # risk → must be kept
+        priorart.enforce_honesty(pa)
+        self.assertFalse(any("clear to file" in i for i in pa["open_items"]))
+        self.assertTrue(any("unclear" in i for i in pa["open_items"]))
+        self.assertTrue(any("anticipation risk" in i for i in pa["open_items"]))
 
     def test_empty_search_is_not_novelty(self):
         pa = {"references": [], "open_items": []}
@@ -79,6 +115,17 @@ class PatentIdeaCompletenessTest(unittest.TestCase):
         rep = patent_idea.completeness(md, self._complete_case())
         self.assertFalse(rep["passed"])
         self.assertTrue(any("Boundary Statement" in f for f in rep["failures"]))
+
+    def test_boundary_as_blockquote_still_passes(self):
+        md = patent_idea.skeleton_markdown("X").replace(
+            patent_idea.BOUNDARY_STATEMENT, "> " + patent_idea.BOUNDARY_STATEMENT)   # Markdown blockquote
+        self.assertTrue(patent_idea.completeness(md, self._complete_case())["passed"])
+
+    def test_non_string_basis_does_not_crash(self):
+        case = self._complete_case()
+        case["requirements"][0]["basis"] = {"weird": "object"}          # model emits a non-string basis
+        rep = patent_idea.completeness(patent_idea.skeleton_markdown("X"), case)   # must not raise
+        self.assertFalse(rep["passed"])                                 # treated as empty basis → fail
 
     def test_102_103_must_keep_open_items(self):
         case = self._complete_case()

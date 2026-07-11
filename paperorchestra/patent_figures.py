@@ -136,9 +136,10 @@ def _load_binary(png, np, work=1000):
     from PIL import Image
     img = Image.open(png).convert("L")
     w, h = img.size
-    if max(w, h) > work:                       # normalize to a fixed working resolution so the
-        s = work / max(w, h)                   # pixel thresholds below are portable across DPIs
-        img = img.resize((max(1, round(w * s)), max(1, round(h * s))), Image.BILINEAR)
+    if max(w, h) > work:                       # DOWNSCALE only (never upscale — upscaling blurs thin
+        s = work / max(w, h)                   # lines and false-positives). Portability across DPIs
+        img = img.resize((max(1, round(w * s)), max(1, round(h * s))), Image.BILINEAR)  # is achieved
+                                               # instead by scaling the pixel thresholds by `sc` below
     ink = (np.asarray(img) < 160).astype(np.uint8)      # white bg, dark ink (anti-alias-tolerant cut)
     ink[0, :] = ink[-1, :] = ink[:, 0] = ink[:, -1] = 0  # zero the border so np.roll can't wrap ink
     return ink
@@ -164,6 +165,7 @@ def _max_true_cluster(np, grid) -> int:
 
 def _crowding(np, ink, tile=24, dense_frac=0.22):
     """(crowded-tile fraction, largest dense cluster, dense-tile count) — tangled/touching regions."""
+    tile = max(10, int(tile))
     H, W = ink.shape
     Ht, Wt = H // tile, W // tile
     if Ht < 2 or Wt < 2:
@@ -234,12 +236,16 @@ def _overlap_defects(png, name, work=1000) -> list[str]:
         return []
     issues: list[str] = []
     try:
+        # tile=24 + the 0.22 ink-fraction RATIO keep this resolution-tolerant across the realistic
+        # raster range (min-size gate 400px .. work=1000; larger is downscaled to 1000). The bridge
+        # threshold sits ABOVE text-glyph artifacts (~<=62px) and BELOW real near-touch channels
+        # (>=140px seen even at 640px), fixing the earlier 150px false-negative on sub-1000 rasters.
         crowd_frac, cluster, n_dense = _crowding(np, ink)
         if crowd_frac > 0.03 or cluster >= 4:
             issues.append(f"{name}: crowded/overlapping region(s) — {n_dense} dense tile(s) "
                           f"(largest block {cluster}); move elements apart / enlarge the drawing")
         bridge = _too_close_maxbridge(np, ink)
-        if bridge >= 150:                       # calibrated at work=1000; a long narrow channel
+        if bridge >= 90:
             issues.append(f"{name}: objects too close — a {bridge}px narrow gap/channel between "
                           f"elements; increase spacing so nothing nearly touches")
     except Exception:   # noqa: BLE001 — a detector bug must never break the gate

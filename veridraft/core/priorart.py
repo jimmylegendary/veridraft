@@ -28,8 +28,14 @@ MANDATORY_OPEN_ITEM = (
     "keywords and CANNOT establish novelty — absence of a found reference is not evidence of novelty."
 )
 NON_CLEARANCE_VERDICT = "leads-only-non-clearance"
-# a verdict/conclusion must never imply the invention is clear to file
-_FORBIDDEN_VERDICT = re.compile(r"novel|patentab|clear|free to file|no prior art|anticipat\w* none", re.I)
+# A verdict/conclusion must never imply the invention is clear to file. Target actual CLEARANCE
+# CONCLUSION phrases only — NOT bare "patentable"/"novel"/"clear", so legitimate GAP open items
+# ("assess §101 patentable subject matter with counsel", "conduct a novelty search", "scope of
+# element X is unclear") survive while "the invention is novel and clear to file" / "free to file,
+# low risk" are neutralized.
+_FORBIDDEN_VERDICT = re.compile(
+    r"clear to file|free to file|\bclearance\b|no prior art (?:found|exists)|\bnot anticipated\b|"
+    r"(?:is|are|it['’]s|deemed|considered|found) (?:to be )?(?:novel|patentable|non-?obvious)", re.I)
 _DISCLOSED = "disclosed"
 
 
@@ -45,7 +51,9 @@ def load(ws: Path) -> dict | None:
 
 
 def _elements(pa: dict) -> dict:
-    ce = pa.get("claim_elements") or {}
+    ce = pa.get("claim_elements")
+    if not isinstance(ce, dict):          # a model may emit claim_elements as a list/string
+        return {}
     return {k: [e for e in (v or []) if isinstance(e, str)] for k, v in ce.items() if isinstance(v, list)}
 
 
@@ -57,10 +65,14 @@ def analyze(pa: dict) -> dict:
     for claim, els in elements.items():
         if not els:
             continue
-        # coverage per reference: which of this claim's elements each reference discloses
+        # coverage per reference: which of this claim's elements each reference discloses.
+        # Defensive: a model may emit disclosed_elements or its per-claim value as a non-dict.
         cover = {}
         for r in refs:
-            disc = (r.get("disclosed_elements") or {}).get(claim, {})
+            de = r.get("disclosed_elements")
+            de = de if isinstance(de, dict) else {}
+            disc = de.get(claim, {})
+            disc = disc if isinstance(disc, dict) else {}
             cover[r.get("id") or r.get("title", "?")] = {
                 e for e in els if str(disc.get(e, "")).lower() == _DISCLOSED}
         # §102: one reference discloses EVERY element
@@ -97,9 +109,9 @@ def enforce_honesty(pa: dict) -> dict:
     """Force the non-clearance framing. Mutates and returns `pa`."""
     pa["verdict"] = NON_CLEARANCE_VERDICT
     items = [i for i in (pa.get("open_items") or []) if isinstance(i, str)]
-    # neutralize any model-emitted conclusion that reads as a clearance
-    kept = [i for i in items if not (_FORBIDDEN_VERDICT.search(i) and "risk" not in i.lower()
-                                     and "mandatory" not in i.lower())]
+    # neutralize any model-emitted CLEARANCE CONCLUSION. No escape hatch: the regex targets only
+    # conclusion phrases, so "free to file, low risk" is dropped while gap items survive.
+    kept = [i for i in items if not _FORBIDDEN_VERDICT.search(i)]
     if not any("PROFESSIONAL prior-art search" in i for i in kept):
         kept.insert(0, MANDATORY_OPEN_ITEM)
     pa["open_items"] = kept
@@ -120,6 +132,9 @@ def validate(pa: dict) -> dict:
         failures.append(f"verdict must be {NON_CLEARANCE_VERDICT!r} (a search never establishes novelty)")
     if not any(isinstance(i, str) and "PROFESSIONAL prior-art search" in i for i in (pa.get("open_items") or [])):
         failures.append("the mandatory professional-search + attorney open item is missing")
+    for i in (pa.get("open_items") or []):   # defense-in-depth: no clearance conclusion may leak
+        if isinstance(i, str) and _FORBIDDEN_VERDICT.search(i):
+            failures.append(f"an open item reads as a forbidden clearance conclusion: {i!r}")
     for r in refs:
         if not isinstance(r, dict):
             continue

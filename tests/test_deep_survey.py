@@ -78,6 +78,20 @@ class ClusterTest(unittest.TestCase):
         cs = next(b for b in buckets if b["field"] == "Computer Science")
         self.assertEqual(cs["size"], 2)
 
+    def test_null_field_category_does_not_leak_none_bucket(self):
+        papers = [{"paperId": "1", "title": "t", "fieldsOfStudy": [],
+                   "s2FieldsOfStudy": [{"category": None}]}]
+        buckets = cluster_pool.by_field(papers)
+        self.assertEqual(buckets[0]["field"], "Uncategorized")          # not a None key
+
+    def test_cluster_size_invariance_no_mega_cluster(self):
+        # many near-identical theme-A papers + a few theme-B: the sum-centroid bug would swallow B
+        A = [_p(f"a{i}", "sparse attention transformers efficient long context") for i in range(12)]
+        B = [_p(f"b{i}", "reinforcement learning robot locomotion policy control") for i in range(3)]
+        clusters = cluster_pool.cluster(A + B, sim_threshold=0.12)
+        self.assertGreaterEqual(len(clusters), 2)                       # B not absorbed into A
+        self.assertTrue(any(c["size"] == 3 for c in clusters))         # the theme-B cluster survives
+
 
 if __name__ == "__main__":
     unittest.main()
