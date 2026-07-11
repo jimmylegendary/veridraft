@@ -9,9 +9,12 @@ config choice, not code. `needs_human=True` is fixed; it NEVER files.
 
 Config example (same backend.json as the paper engine — see paperorchestra/config.example.json):
     [adapters.patent_engine.patent-llm]
-    patent_command = ["python3", "/abs/paperorchestra/patent_run.py", "--config", "backend.json",
-                      "--workspace", "{workspace}"]
-The deterministic, zero-dependency alternative is the `minimal-patent` engine (no model needed).
+    patent_command   = ["python3", "/abs/paperorchestra/patent_run.py",      "--config", "backend.json", "--workspace", "{workspace}"]
+    priorart_command = ["python3", "/abs/paperorchestra/patent_priorart.py", "--config", "backend.json", "--workspace", "{workspace}"]
+    idea_command     = ["python3", "/abs/paperorchestra/patent_idea.py",     "--config", "backend.json", "--workspace", "{workspace}"]
+`priorart_command` / `idea_command` are OPTIONAL — without them the pre-draft prior-art search and
+idea memo degrade to an honest empty record / a skeleton memo. The deterministic, zero-dependency
+alternative for all three is the `minimal-patent` engine (no model needed).
 """
 from __future__ import annotations
 

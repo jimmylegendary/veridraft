@@ -99,8 +99,8 @@ bash verify.sh          # compile + full test suite + acceptance scenarios (all 
 ## The op-manifest (same governed ops behind CLI / API / MCP)
 
 ```
-import-bundle → gate → assemble → draft → review → readiness → publish        # paper
-              gate → patentability → draft-patent → patent-review              # patent
+import-bundle → gate → assemble → draft → review → readiness → publish                     # paper
+              gate → patent-prior-art → patentability → patent-idea → draft-patent → patent-review   # patent
 release-interlock (human) · reviews · events · status · adapters · venues
 ```
 
@@ -108,6 +108,19 @@ Real paper from a repo (the "code + design docs → paper" case): aggregate the 
 governed bundle (claims backed by `source_artifact` evidence, only real numbers), gate it, assemble
 inputs, run the **PaperOrchestra** pipeline over `workspace/inputs/`, then `publish` (the egress
 gate scans the produced PDF). See [`docs/GUIDE.md`](docs/GUIDE.md).
+
+Thin-context robustness (same deterministic-floor principle) — every step below always runs its
+model-free contract; a connected model only raises quality:
+
+| Capability | Deterministic floor (always) | Model-dependent ceiling |
+|---|---|---|
+| **Preflight** ([`preflight.py`](paperorchestra/preflight.py)) | scores input sufficiency (idea density, ≥5 real experimental numbers — NEVER auto-filled, ≥8 refs, figures, code-doc coverage, meta) → OK / AUTOFILL / NEEDS-HUMAN | grounded auto-remediation of AUTOFILL gaps |
+| **Meta gate** ([`meta_info.py`](paperorchestra/meta_info.py)) | blocks drafting until human-only meta (venue/authors · inventors/jurisdiction/disclosure) is answered; exit 3 + machine-readable questions | — |
+| **Deep survey** ([`literature-review-agent`](skills/literature-review-agent)) | S2 citation-graph snowballing to saturation (`snowball.py`), dedup, fan-out cap, TF-IDF theme clustering — every paper still S2-verified | discovered-work relevance & prose |
+| **Reference figures** ([`reference-figure-extractor`](skills/reference-figure-extractor)) | extracts (image · in-text reference window · caption) triples from cited PDFs, third-party provenance stamped | VLM figure descriptions |
+| **Patent drawings** ([`patent_figures.py`](paperorchestra/patent_figures.py)) | image gate: monochrome/line-art + crowding + objects-too-close geometry, bounded regenerate loop | VLM crossing/overlap adjudication |
+| **Prior-art search** ([`priorart.py`](veridraft/core/priorart.py)) | element-level §102 anticipation + §103 combination derivation; honesty invariant (absence ≠ novelty; verdict forced non-clearance) | keyless agentic search (Google Patents + S2 NPL) |
+| **Patent-idea memo** ([`patent_idea.py`](veridraft/core/patent_idea.py)) | completeness gate: all sections + verbatim boundary + §102/§103 keep open items | the drafted concept + case |
 
 ## Connecting an AI model (papers **and** patents)
 

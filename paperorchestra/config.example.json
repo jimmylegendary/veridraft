@@ -18,7 +18,14 @@
   "web_search": "none",
   "//web_search": "how the literature agent discovers candidates: builtin (host tool) | searxng | serper | none (degraded: user-supplied refs.bib only)",
   "s2_api_key": null,
-  "//s2_api_key": "optional Semantic Scholar API key to raise the 1 QPS public limit",
+  "//s2_api_key": "optional Semantic Scholar API key (env SEMANTIC_SCHOLAR_API_KEY) to raise the 1 QPS public limit — recommended for deep-survey snowballing",
+  "survey_depth": "shallow",
+  "//survey_depth": "literature depth: shallow (one discovery round, default) | deep (citation-graph snowballing to saturation via snowball.py — for survey/study papers or exhaustive related-work)",
+
+  "figure_fix_max_iters": 2,
+  "//figure_fix_max_iters": "bounded regenerate loop for patent/concept drawings that fail the image gate (color/shading/border/size + crowding/objects-too-close geometry)",
+  "figure_context_chars": 350,
+  "//figure_context_chars": "reference-figure-extractor: chars of surrounding context kept around each in-text figure mention",
 
   "skills_dir": null,
   "//skills_dir": "null => use the PaperOrchestra skills VENDORED in ./skills (MIT); set a path to override",
