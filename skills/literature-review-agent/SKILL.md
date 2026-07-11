@@ -12,6 +12,16 @@ Faithful implementation of the Hybrid Literature Agent from PaperOrchestra
 plotting). Wall-time floor is set by Semantic Scholar's 1 QPS verification
 limit.
 
+> **Deep-survey mode (`survey_depth: deep`).** For a survey/study paper — or a
+> demanding Related Work — layer **citation-graph snowballing to saturation** on
+> top of this base pipeline: seed from the verified pool, expand backward
+> (`/references`) and forward (`/citations`), screen each candidate for relevance,
+> and stop when a round adds no new relevant papers or themes. See
+> [`references/deep-survey-mode.md`](references/deep-survey-mode.md) and the
+> `snowball.py` / `cluster_pool.py` / `s2_graph.py` scripts. The same S2
+> verification + cutoff rules still gate every admitted paper — deep mode only
+> widens recall, it never relaxes citation integrity.
+
 ## Inputs
 
 - `workspace/outline.json` — specifically `intro_related_work_plan` with the
@@ -354,3 +364,7 @@ If your host has no web search tool, switch to degraded mode:
 - `scripts/citation_coverage.py` — ≥90% citation coverage gate
 - `scripts/s2_search.py` — **NEW** Semantic Scholar title-search helper; reads `SEMANTIC_SCHOLAR_API_KEY` from env (optional — falls back to unauthenticated)
 - `scripts/exa_search.py` — optional Exa Phase 1 backend (reads `EXA_API_KEY` from env)
+- `references/deep-survey-mode.md` — **NEW** citation-graph snowballing to saturation (survey depth)
+- `scripts/s2_graph.py` — **NEW** S2 `/references` `/citations` `/batch` client (paging, throttle, cache)
+- `scripts/snowball.py` — **NEW** pure snowball orchestrator with saturation stopping (offline-testable)
+- `scripts/cluster_pool.py` — **NEW** TF-IDF thematic clustering + field buckets for survey sections
