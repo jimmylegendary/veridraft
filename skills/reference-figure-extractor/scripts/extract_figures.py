@@ -29,14 +29,33 @@ from pathlib import Path
 
 # "Figure 3", "Fig. 3", "Figs 3-4", "Figure 3a" — capture the leading number(+optional letter).
 _FIG_TOKEN = re.compile(r"\b(?:fig(?:ure)?s?)\.?\s*(\d+[a-z]?)", re.I)
-# A caption BLOCK starts a figure number then a separator/space and descriptive text.
-_CAPTION_HEAD = re.compile(r"^\s*(?:fig(?:ure)?s?)\.?\s*(\d+[a-z]?)\s*[.:)–—-]?\s*", re.I)
+# A caption line/BLOCK starts (at a line start, possibly indented for a centered caption) with a
+# figure number then a REQUIRED separator (colon/period/paren/dash) then descriptive text. The
+# separator is what distinguishes a real caption ("Figure 1: ...") from a body line that merely
+# begins with a reference ("Figure 1 also motivates ...") — without it those get mis-tagged as
+# captions and their in-text mention is wrongly dropped. re.M so finditer catches every line.
+_CAPTION_HEAD = re.compile(r"^[ \t]*(?:fig(?:ure)?s?)\.?\s*(\d+[a-z]?)\s*[.:)\]–—-]\s*", re.I | re.M)
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\[])")
 
 
 def _norm_fig(n: str) -> str:
     """Normalize a figure token: strip a trailing subfigure letter so 'Figure 3a' ~ 'Fig. 3'."""
     return re.sub(r"[a-z]$", "", n.strip().lower())
+
+
+def _source(pdf: Path, page: int, extractor: str) -> dict:
+    """Provenance every extracted figure MUST carry — it is THIRD-PARTY content from a cited work."""
+    return {
+        "pdf": pdf.name,
+        "path": str(pdf.resolve()),
+        "page": page,                          # 1-indexed
+        "extractor": extractor,
+        "third_party": True,
+        "attribution_required": True,
+        "license": "unknown",                  # recorded, NOT asserted — reuse needs a permission check
+        "usage_note": ("Third-party figure from a cited source; source+page recorded; NOT the "
+                       "author's own result; reproducing it needs a license/permission check."),
+    }
 
 
 def is_caption(text: str) -> str | None:
@@ -170,7 +189,7 @@ def extract(pdf_path: str, out_dir: str, context_chars: int = 350, zoom: float =
         spans = []
         for m in _CAPTION_HEAD.finditer(full):
             if is_caption(full[m.start():m.start() + 220]):
-                spans.append((m.start(), m.start() + 120))
+                spans.append((m.start(), m.end()))   # exclude ONLY the caption's own "Figure N" token
         caption_spans[pno] = spans
 
     records: list[dict] = []
@@ -195,14 +214,13 @@ def extract(pdf_path: str, out_dir: str, context_chars: int = 350, zoom: float =
             refs = find_references(fig_no, page_texts, caption_spans, context_chars)
             records.append({
                 "figure_id": f"fig{fig_no}",
-                "source_pdf": pdf.name,
-                "page": pno + 1,
+                "figure_number": fig_no,
                 "caption": caption,
                 "image": image_rel,
-                "references": refs,
+                "references": refs,             # (2) in-text reference context, windowed
                 "reference_count": len(refs),
-                "description": None,          # filled by describe_figures.py (VLM ceiling)
-                "provenance": "THIRD-PARTY figure extracted from a cited source; do not present as own result",
+                "description": None,            # (3) detailed image description — describe_figures.py (VLM)
+                "source": _source(pdf, pno + 1, "pymupdf-clip" if image_rel else "pymupdf-textonly"),
             })
     doc.close()
     manifest = {"source_pdf": str(pdf), "engine": "pymupdf", "figure_count": len(records),
@@ -217,39 +235,68 @@ def _figkey(fid: str):
     return int(m.group(1)) if m else 0
 
 
+def _page_images(pdf: Path, page: int, figs_dir: Path, fig_no: str) -> str | None:
+    """Poppler fallback: dump embedded rasters on `page`; if none, render the whole page. Association
+    is PAGE-LEVEL (no tight text↔image coordinate join without PyMuPDF), which we record honestly."""
+    stem = figs_dir / f"fig{fig_no}"
+    if shutil.which("pdfimages"):
+        try:
+            subprocess.run(["pdfimages", "-png", "-f", str(page), "-l", str(page), str(pdf), str(stem)],
+                           capture_output=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        dumped = sorted(figs_dir.glob(f"fig{fig_no}-*.png"))
+        # keep the largest dumped raster (drop logos/rules); return its relative path
+        dumped = [p for p in dumped if p.stat().st_size > 1500]
+        if dumped:
+            best = max(dumped, key=lambda p: p.stat().st_size)
+            for p in dumped:
+                if p != best:
+                    p.unlink()
+            return f"figures/{best.name}"
+    if shutil.which("pdftoppm"):               # vector-only figure → render the page as a fallback
+        try:
+            subprocess.run(["pdftoppm", "-png", "-r", "150", "-f", str(page), "-l", str(page),
+                            "-singlefile", str(pdf), str(stem)], capture_output=True, timeout=60)
+            if stem.with_suffix(".png").exists():
+                return f"figures/fig{fig_no}.png"
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return None
+
+
 def _extract_text_only(pdf: Path, out: Path, figs_dir: Path, context_chars: int) -> dict:
-    """Degraded path: pdftotext gives us captions + reference contexts but NO images."""
+    """Degraded path (no PyMuPDF): poppler gives captions + reference windows AND page-level images."""
     if not shutil.which("pdftotext"):
         manifest = {"source_pdf": str(pdf), "engine": "none", "figure_count": 0, "figures": [],
                     "note": "neither PyMuPDF nor pdftotext available — cannot read the PDF"}
         (out / "figures_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         return manifest
-    # -raw keeps reading order; split into pages on the form-feed pdftotext emits.
-    proc = subprocess.run(["pdftotext", "-raw", str(pdf), "-"], capture_output=True, text=True, timeout=120)
+    # -layout preserves column order (better than -raw for multi-column papers); pages split on \f.
+    proc = subprocess.run(["pdftotext", "-layout", str(pdf), "-"], capture_output=True, text=True, timeout=120)
     page_texts = proc.stdout.split("\f")
     caption_spans: dict[int, list[tuple[int, int]]] = {}
     captions: dict[str, tuple[int, str]] = {}
     for pi, txt in enumerate(page_texts):
         spans = []
         for m in _CAPTION_HEAD.finditer(txt):
-            head = txt[m.start():m.start() + 300]
-            fno = is_caption(head)
+            fno = is_caption(txt[m.start():m.start() + 300])
             if fno:
-                spans.append((m.start(), m.start() + 120))
-                if fno not in captions:
-                    line_end = txt.find("\n", m.start())
-                    captions[fno] = (pi, re.sub(r"\s+", " ", head[:400]).strip())
+                spans.append((m.start(), m.end()))   # exclude ONLY the caption's own "Figure N" token
+                captions.setdefault(fno, (pi, re.sub(r"\s+", " ", txt[m.start():m.start() + 400]).strip()))
         caption_spans[pi] = spans
     records = []
     for fno, (pi, cap) in captions.items():
         refs = find_references(fno, page_texts, caption_spans, context_chars)
-        records.append({"figure_id": f"fig{fno}", "source_pdf": pdf.name, "page": pi + 1,
-                        "caption": cap, "image": None, "references": refs,
-                        "reference_count": len(refs), "description": None,
-                        "provenance": "THIRD-PARTY figure (text-only extraction; image not rendered)"})
-    manifest = {"source_pdf": str(pdf), "engine": "pdftotext-textonly", "figure_count": len(records),
+        image_rel = _page_images(pdf, pi + 1, figs_dir, fno)
+        records.append({"figure_id": f"fig{fno}", "figure_number": fno, "caption": cap,
+                        "image": image_rel, "references": refs, "reference_count": len(refs),
+                        "description": None,
+                        "source": _source(pdf, pi + 1, "poppler-pageimage" if image_rel else "poppler-textonly")})
+    manifest = {"source_pdf": str(pdf), "engine": "poppler", "figure_count": len(records),
                 "figures": sorted(records, key=lambda r: _figkey(r["figure_id"])),
-                "note": "PyMuPDF not installed — images NOT extracted; install pymupdf for image rendering"}
+                "note": ("PyMuPDF not installed — images are PAGE-LEVEL (embedded rasters or a rendered "
+                         "page), not region-tight; install pymupdf for tight figure clips")}
     (out / "figures_manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False),
                                                encoding="utf-8")
     return manifest
