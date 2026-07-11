@@ -27,7 +27,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import meta_info
+import patent_figures
 import providers
+import run as po_run   # figure staging
 
 
 def log(m: str) -> None:
@@ -62,6 +64,12 @@ CLAIM REQUIREMENTS (the review gate checks these — satisfy them):
     open_items as requires-enablement-review.
 Also add open_items for: 102/103 prior-art search (UNSCREENED here), 101 eligibility (legal),
 §112 antecedent basis / means-plus-function, and jurisdiction formalities.
+
+DRAWINGS: generate 1-3 patent drawings into {ws}/figures/ (fig1.png, fig2.png, ...) illustrating
+the claimed system architecture and method flow; add a Brief Description of the Drawings and
+\\includegraphics{{figures/figN.png}} floats to patent.tex; recite EVERY reference numeral from the
+drawings in the Detailed Description. (An image gate verifies the rendered drawings.)
+{drawing_rules}
 When done, confirm {ws}/final/patent.tex and {ws}/final/open_items.json exist, then stop."""
 
 
@@ -109,12 +117,26 @@ def draft(cfg: dict, ws: Path, force: bool = False) -> int:
         if cfg.get("require_meta", True):
             meta_info.enforce(ws, "patent", log=log)
         log(f"drafting patent via backend={cfg.get('backend')}")
-        providers.dispatch(cfg, _PROMPT.format(ws=str(ws)) + meta_info.prompt_block(ws, "patent"),
+        providers.dispatch(cfg,
+                           _PROMPT.format(ws=str(ws), drawing_rules=patent_figures.PATENT_FIGURE_RULES)
+                           + meta_info.prompt_block(ws, "patent"),
                            str(ws), timeout=(cfg.get("step_timeout_seconds") or 2400))
         if not tex.exists():
             raise SystemExit("backend did not produce final/patent.tex (too weak / wrong workspace)")
     if not (final / "open_items.json").exists():
         (final / "open_items.json").write_text("[]", encoding="utf-8")
+    # Drawings gate: verify the RENDERED images (monochrome line art, numerals, spacing) and feed
+    # defects into a bounded regenerate loop, then stage figures so \includegraphics resolves.
+    figs_dir = ws / "figures"
+    if figs_dir.is_dir() and any(figs_dir.iterdir()):
+        remaining = patent_figures.check_and_fix(cfg, ws, figs_dir,
+                                                 max_iters=int(cfg.get("figure_fix_max_iters", 2)))
+        (final / "figures.verify.json").write_text(json.dumps(remaining, indent=2), encoding="utf-8")
+        for r in remaining:
+            log(f"  ⚠ drawing: {r}")
+        po_run._stage_figures(ws, final)
+    else:
+        log("no drawings in figures/ — a filing normally requires drawings (attorney open item)")
     _compile_and_validate(final)
     log("patent draft ready (final/patent.tex); NEVER filed — attorney review required")
     return 0
