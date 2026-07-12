@@ -7,4 +7,4 @@ standard library only (no pip, no LaTeX, no LLM, no network required to run it).
 See impl/README.md for the runbook and design/ for the ADRs this implements.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
