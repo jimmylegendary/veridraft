@@ -37,11 +37,26 @@ from pathlib import Path
 
 _OVERFULL_MIN_PT = 5.0            # < this is invisible; > this spills visibly into the margin
 _LEGIT_DOUBLES = {"that", "had"}      # "had had", "that that" can be legitimate; "the the" is a typo
+# only a KNOWN LaTeX command name leaking into the rendered text is a defect — a bare "\word" could
+# be a Windows path etc.; this set keeps the leaked-latex check from false-positiving on those.
+_LEAK_CMDS = {"textbf", "textit", "texttt", "textsc", "textsf", "textrm", "emph", "cite", "citep",
+              "citet", "citeauthor", "ref", "eqref", "autoref", "cref", "label", "section",
+              "subsection", "subsubsection", "paragraph", "begin", "end", "item", "footnote",
+              "caption", "includegraphics", "mathrm", "mathbf", "mathcal", "hline", "midrule",
+              "toprule", "bottomrule", "centering", "textwidth", "linewidth", "url", "textsuperscript"}
+_HEADING_STOP = {"ABSTRACT", "INTRODUCTION", "CONCLUSION", "CONCLUSIONS", "REFERENCES", "RELATED",
+                 "WORK", "BACKGROUND", "METHOD", "METHODS", "METHODOLOGY", "RESULTS", "DISCUSSION",
+                 "EVALUATION", "EXPERIMENTS", "APPENDIX", "ACKNOWLEDGMENTS", "ACKNOWLEDGEMENTS",
+                 "THE", "AND", "FIG", "REF", "EQ", "ET", "AL", "VS", "VIA", "FOR", "WITH", "TABLE"}
 
 
-def _has_hangul(s: str) -> bool:
-    return any(0xAC00 <= ord(c) <= 0xD7A3 or 0x1100 <= ord(c) <= 0x11FF or 0x3130 <= ord(c) <= 0x318F
-               for c in s)
+def _has_cjk(s: str) -> bool:
+    """Any non-Latin CJK script (Hangul, CJK ideographs incl. ext-A, and Japanese kana) — so the
+    'technical token stayed English' check works for Korean AND Japanese/Chinese translation targets."""
+    return any(0xAC00 <= o <= 0xD7A3 or 0x1100 <= o <= 0x11FF or 0x3130 <= o <= 0x318F   # Hangul
+               or 0x4E00 <= o <= 0x9FFF or 0x3400 <= o <= 0x4DBF                          # CJK ideographs
+               or 0x3040 <= o <= 0x30FF                                                   # kana
+               for o in map(ord, s))
 
 
 def _read(p: Path) -> str:
@@ -77,15 +92,17 @@ def text_mechanics(rendered: str, cap: int = 60) -> list[dict]:
     """Defects a reader can SEE in the rendered text. MUST run on pdftotext output, not the .tex
     source (where every LaTeX command would look like a 'leak')."""
     issues: list[dict] = []
-    for m in re.finditer(r"\b([A-Za-z]{2,})\s+\1\b", rendered):
+    for m in re.finditer(r"\b([A-Za-z]{2,})\s+\1\b", rendered, re.IGNORECASE):   # incl. "The the"
         if m.group(1).lower() not in _LEGIT_DOUBLES:
             issues.append({"type": "doubled-word", "detail": m.group(0)})
     for m in re.finditer(r"[A-Za-z] +([,.;:!?])", rendered):        # space before punctuation
         issues.append({"type": "space-before-punct", "detail": repr(m.group(0))})
-    for m in re.finditer(r"[,;:]{2,}|(?<![.\d])\.\.(?!\.)", rendered):   # doubled punctuation
+    # doubled comma/semicolon or 3+ colons; a bare "::" (C++ scope) is NOT a defect
+    for m in re.finditer(r"[,;]{2,}|:{3,}|(?<![.\d])\.\.(?!\.)", rendered):
         issues.append({"type": "doubled-punct", "detail": repr(m.group(0))})
-    for m in re.finditer(r"\\[A-Za-z]{2,}\b", rendered):           # a leaked control sequence
-        issues.append({"type": "leaked-latex", "detail": m.group(0)})
+    for m in re.finditer(r"\\([A-Za-z]{2,})\b", rendered):         # a KNOWN control sequence leaked
+        if m.group(1) in _LEAK_CMDS:
+            issues.append({"type": "leaked-latex", "detail": m.group(0)})
     # dedup by (type, detail); cap
     seen, out = set(), []
     for i in issues:
@@ -103,29 +120,43 @@ _GLOSSARY = {"KV cache", "attention", "transformer", "tokenizer", "embedding", "
 
 
 def technical_terms(tex: str) -> set[str]:
-    """Terms that should stay ENGLISH: acronyms, \\texttt/\\verb tokens, and known-glossary hits."""
-    terms = set(re.findall(r"\b[A-Z]{2,}[a-z]?\b", tex))                 # KV, GPU, LLM, FLOPs
+    """Terms that should stay ENGLISH: acronyms, \\texttt/\\verb tokens, and known-glossary hits.
+    Section-heading words (ABSTRACT, CONCLUSION …) and Roman numerals are NOT technical terms."""
+    acronyms = {t for t in re.findall(r"\b[A-Z]{2,}[a-z]?\b", tex)
+                if t.upper() not in _HEADING_STOP and not re.fullmatch(r"[IVXLCDM]+", t)}
+    terms = set(acronyms)
     terms |= {t.strip() for t in re.findall(r"\\texttt\{([^}]{1,40})\}", tex) if t.strip()}
     terms |= {t.strip() for t in re.findall(r"\\verb\|([^|]{1,40})\|", tex) if t.strip()}
     terms |= {t for t in _GLOSSARY if re.search(rf"\b{re.escape(t)}\b", tex, re.I)}
-    return {t for t in terms if len(t) >= 2 and t.upper() not in {"THE", "AND", "FIG", "REF", "EQ", "ET"}}
+    return {t for t in terms if len(t) >= 2}
+
+
+def _prose_view(tex: str) -> str:
+    """Strip verbatim-PRESERVED LaTeX (keys/labels/cites/urls/bibliography/comments) so a term that
+    survives only inside a preserved \\cite/\\label key does not mask its loss from the actual prose."""
+    t = re.sub(r"(?m)%.*$", " ", tex)
+    t = re.sub(r"\\(?:label|ref|eqref|autoref|cref|Cref|cite[a-z]*|url|nolinkurl|includegraphics|"
+               r"input|include|bibliography|bibliographystyle)\s*(\[[^\]]*\])?\{[^}]*\}", " ", t)
+    t = re.sub(r"\\begin\{thebibliography\}.*?\\end\{thebibliography\}", " ", t, flags=re.S)
+    return t
 
 
 def translation_term_check(orig_tex: str, trans_tex: str, cap: int = 40) -> list[dict]:
     """Technical terms that may have been wrongly translated out of a translated version."""
     findings: list[dict] = []
+    prose = _prose_view(trans_tex)                                   # search the PROSE, not keys/bib
     for t in sorted(technical_terms(orig_tex)):
-        if not re.search(rf"(?<![A-Za-z0-9]){re.escape(t)}(?![A-Za-z0-9])", trans_tex):
+        if not re.search(rf"(?<![A-Za-z0-9]){re.escape(t)}(?![A-Za-z0-9])", prose, re.I):  # case-insensitive
             findings.append({"type": "term-missing-in-translation", "term": t,
-                             "note": "present (English) in the original but ABSENT from the translation "
-                                     "— verify it was not translated into Korean"})
+                             "note": "present (English) in the original but ABSENT from the translated "
+                                     "prose — verify it was not translated into the target language"})
     for env, pat in (("texttt", r"\\texttt\{([^}]*)\}"), ("verb", r"\\verb\|([^|]*)\|"),
                      ("inline-math", r"(?<!\$)\$([^$]{1,80})\$(?!\$)")):
         for m in re.finditer(pat, trans_tex):
-            if _has_hangul(m.group(1)):
-                findings.append({"type": "hangul-in-code", "context": m.group(0)[:70],
-                                 "note": f"Korean characters inside {env} — a technical token was "
-                                         "translated; it must stay English"})
+            if _has_cjk(m.group(1)):
+                findings.append({"type": "cjk-in-code", "context": m.group(0)[:70],
+                                 "note": f"non-Latin (CJK) characters inside {env} — a technical token "
+                                         "was translated; it must stay English"})
     return findings[:cap]
 
 
@@ -144,7 +175,11 @@ def global_layout_remedy_tex(tex: str) -> tuple[str, list[str]]:
     """Inject preamble-level overfull remedies that fix MANY boxes at once. Returns (new_tex, applied).
     No-op if already present / nothing applicable. Never touches content, only the preamble."""
     def has_pkg(name):
-        return re.search(rf"\\usepackage(\[[^\]]*\])?\{{\s*{name}\s*\}}", tex)
+        # understand comma-separated \usepackage{a,b,c} lists, not just a sole argument
+        for m in re.finditer(r"\\usepackage(?:\[[^\]]*\])?\{([^}]*)\}", tex):
+            if name in [p.strip() for p in m.group(1).split(",")]:
+                return True
+        return False
 
     inject, applied = [], []
     if not has_pkg("microtype") and _kpsewhich("microtype.sty"):
@@ -215,8 +250,10 @@ def verify(final_dir: str, tex_name: str = "paper.tex", original_tex: str | None
 
     overfull = parse_overfull(log_txt)
     mech = text_mechanics(rendered) if rendered else []
+    build_ok = (final / f"{stem}.pdf").exists()      # a compile that never produced a PDF is NOT clean
     report = {
         "kind": kind, "tex": tex_name,
+        "build_ok": build_ok,
         "overfull": overfull[:80], "overfull_count": len(overfull),
         "worst_overfull_pt": overfull[0]["pt"] if overfull else 0.0,
         "missing_figures": missing_figures(log_txt),
@@ -225,9 +262,10 @@ def verify(final_dir: str, tex_name: str = "paper.tex", original_tex: str | None
     }
     if original_tex:
         report["translation"] = translation_term_check(_read(Path(original_tex)), tex)
-    # FAIL-LOUD: any layout or mechanics or translation defect blocks "clean"
-    report["clean"] = not (overfull or mech or report.get("missing_figures")
-                           or report.get("translation"))
+    # FAIL-LOUD: a missing build OR any layout/mechanics/translation defect blocks "clean" — a
+    # failed/absent compile (no PDF), a wrong --final path, or a wrong --tex stem never reads clean.
+    report["clean"] = build_ok and not (overfull or mech or report.get("missing_figures")
+                                        or report.get("translation"))
     if proofread and cfg:
         report["proofread"] = _model_proofread(cfg, rendered, kind, bool(original_tex))
     (final / f"{stem}.verification.json").write_text(json.dumps(report, indent=2, ensure_ascii=False),

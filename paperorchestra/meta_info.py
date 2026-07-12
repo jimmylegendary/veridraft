@@ -84,8 +84,15 @@ def _present(meta: dict, f: dict) -> bool:
         return False
     if want is list and not isinstance(v, list):
         return False
-    if f.get("choices") and v not in f["choices"]:
-        return False
+    if f.get("choices"):
+        # case-insensitive + paper_type synonyms (study/review == survey), matching what the
+        # question advertises ("SURVEY/STUDY") and what preflight accepts — else a valid answer
+        # loops the meta gate forever while preflight already treats it as a survey.
+        norm = str(v).strip().lower()
+        if f["key"] == "paper_type" and norm in ("study", "review"):
+            norm = "survey"
+        if norm not in [c.lower() for c in f["choices"]]:
+            return False
     return True
 
 

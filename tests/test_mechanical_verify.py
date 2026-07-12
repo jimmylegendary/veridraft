@@ -32,17 +32,29 @@ class OverfullMapTest(unittest.TestCase):
 class TextMechanicsTest(unittest.TestCase):
     def test_flags_visible_defects_on_rendered_text(self):
         rendered = "This is is a test . The the result ,, shows \\textbf leaked here."
-        types = {i["type"] for i in mv.text_mechanics(rendered)}
-        self.assertIn("doubled-word", types)          # "is is" and "the the"
+        got = mv.text_mechanics(rendered)
+        types = {i["type"] for i in got}
+        self.assertIn("doubled-word", types)          # "is is" and "The the"
         self.assertIn("space-before-punct", types)    # " ."
         self.assertIn("doubled-punct", types)         # ",,"
         self.assertIn("leaked-latex", types)          # "\textbf" visible in rendered text
+        self.assertTrue(any(i["detail"] == "The the" for i in got))   # case-insensitive doubled-word
 
     def test_legit_doubles_not_flagged(self):
         # "that that" / "had had" are legitimate; a bare number decimal must not be doubled-punct
         rendered = "We show that that value is 3.5 and had had no effect."
         self.assertFalse(any(i["type"] == "doubled-word" for i in mv.text_mechanics(rendered)))
         self.assertFalse(any(i["type"] == "doubled-punct" for i in mv.text_mechanics(rendered)))
+
+    def test_cpp_scope_resolution_not_flagged(self):
+        for tok in ("std::vector", "torch::Tensor", "namespace::member"):
+            self.assertFalse(any(i["type"] == "doubled-punct" for i in mv.text_mechanics(tok)), tok)
+        self.assertTrue(any(i["type"] == "doubled-punct" for i in mv.text_mechanics("a::: b")))  # 3+ colons
+
+    def test_windows_path_not_flagged_but_real_command_is(self):
+        self.assertEqual([i for i in mv.text_mechanics(r"see C:\Users\Program files here")
+                          if i["type"] == "leaked-latex"], [])
+        self.assertTrue(any(i["type"] == "leaked-latex" for i in mv.text_mechanics(r"a \citep leaked")))
 
 
 class TranslationTermTest(unittest.TestCase):
@@ -53,13 +65,34 @@ class TranslationTermTest(unittest.TestCase):
         terms = {x.get("term") for x in f if x["type"] == "term-missing-in-translation"}
         self.assertIn("FLOPs", terms)                 # translated/omitted from the translation
         self.assertIn("prefill", terms)
-        self.assertTrue(any(x["type"] == "hangul-in-code" for x in f))   # 프리필 inside \texttt
+        self.assertTrue(any(x["type"] == "cjk-in-code" for x in f))   # 프리필 inside \texttt
 
     def test_preserved_terms_not_flagged(self):
         orig = r"GPU and attention throughput."
         trans = r"GPU와 attention throughput 처리량."   # tech terms kept English
         self.assertEqual([x for x in mv.translation_term_check(orig, trans)
                           if x["type"] == "term-missing-in-translation"], [])
+
+    def test_japanese_token_in_code_flagged(self):   # CJK, not just Hangul
+        f = mv.translation_term_check(r"use \texttt{prefill}", r"\texttt{プレフィル} を使う")
+        self.assertTrue(any(x["type"] == "cjk-in-code" for x in f))
+
+    def test_term_surviving_only_in_a_cite_key_does_not_mask_loss(self):
+        orig = r"We build on KV cache."
+        trans = r"우리는 이를 기반으로 한다 \cite{kvcache2023}."   # 'cache' only in the cite key
+        terms = {x.get("term") for x in mv.translation_term_check(orig, trans)
+                 if x["type"] == "term-missing-in-translation"}
+        self.assertIn("KV cache", terms)             # prose-view ignores the preserved \cite key
+
+    def test_headings_and_roman_numerals_are_not_terms(self):
+        terms = mv.technical_terms("ABSTRACT INTRODUCTION CONCLUSION III VII and GPU KV")
+        self.assertNotIn("ABSTRACT", terms); self.assertNotIn("III", terms)
+        self.assertIn("GPU", terms); self.assertIn("KV", terms)
+
+    def test_glossary_term_capitalized_in_translation_not_flagged(self):
+        # 'Latency' (glossary hit, detected case-insensitively) present capitalized in the translation
+        f = mv.translation_term_check("Latency is important.", "Latency 는 중요하다.")
+        self.assertEqual([x for x in f if x["type"] == "term-missing-in-translation"], [])
 
 
 class GlobalRemedyTest(unittest.TestCase):
@@ -77,6 +110,13 @@ class GlobalRemedyTest(unittest.TestCase):
         _, applied = mv.global_layout_remedy_tex(tex)
         self.assertNotIn("url-hyphens", applied)      # avoid load-order conflict with hyperref
 
+    def test_detects_packages_in_comma_list(self):
+        # microtype + hyperref already loaded via a comma-list → do NOT re-inject / clash
+        tex = r"\documentclass{article}\usepackage{amsmath,microtype,hyperref}\begin{document}x\end{document}"
+        _, applied = mv.global_layout_remedy_tex(tex)
+        self.assertNotIn("microtype", applied)        # already present in the list
+        self.assertNotIn("url-hyphens", applied)      # hyperref in the list manages url
+
 
 class VerifyFailLoudTest(unittest.TestCase):
     def test_verify_reports_and_is_not_clean_with_overfull(self):
@@ -88,6 +128,15 @@ class VerifyFailLoudTest(unittest.TestCase):
         self.assertEqual(rep["overfull_count"], 1)
         self.assertEqual(rep["worst_overfull_pt"], 42.0)
         self.assertTrue((final / "paper.verification.json").exists())
+
+    def test_missing_build_is_never_clean(self):
+        final = Path(tempfile.mkdtemp())              # empty dir: no pdf, no log, no tex
+        rep = mv.verify(str(final))
+        self.assertFalse(rep["clean"])                # a failed/absent compile must NOT read clean
+        self.assertFalse(rep["build_ok"])
+        # a wrong --tex stem (pdf for that stem absent) is likewise not clean
+        (final / "paper.pdf").write_bytes(b"%PDF")
+        self.assertTrue(mv.verify(str(final))["build_ok"])   # correct stem now has a pdf
 
 
 if __name__ == "__main__":

@@ -60,6 +60,17 @@ class MetaGateTest(unittest.TestCase):
         self.assertIn("inventors", keys)
         tmp.cleanup()
 
+    def test_paper_type_accepts_case_and_synonyms(self):
+        # "Survey"/"STUDY"/"review"/"Research" must PASS the gate (matching what preflight accepts),
+        # not loop the meta question forever; a real wrong value still fails.
+        for val in ("Survey", "STUDY", "review", "Research"):
+            tmp, ws = _ws(dict(PAPER_OK, paper_type=val))
+            self.assertNotIn("paper_type", {f["key"] for f in mi.check_meta(ws, "paper")["missing"]}, val)
+            tmp.cleanup()
+        tmp, ws = _ws(dict(PAPER_OK, paper_type="poem"))
+        self.assertIn("paper_type", {f["key"] for f in mi.check_meta(ws, "paper")["missing"]})
+        tmp.cleanup()
+
     def test_patent_questions_cover_legal_facts(self):
         tmp, ws = _ws(None)
         keys = {f["key"] for f in mi.check_meta(ws, "patent")["missing"]}
