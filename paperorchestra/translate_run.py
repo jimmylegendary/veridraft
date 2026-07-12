@@ -161,6 +161,21 @@ def translate(cfg: dict, ws: Path, lang: str, source: str = "paper", force: bool
                                         if issues else "  — self-check clean"))
     for i in issues:
         log(f"  ✗ {i}")
+    # MECHANICAL VERIFICATION of the translation: technical terms that must stay ENGLISH but went
+    # missing / got Koreanized, layout, and (optional) a model nuance pass — vs the original.
+    if pdf:
+        try:
+            import mechanical_verify
+            mrep = mechanical_verify.verify(str(final), tex_name=f"{out_stem}.tex",
+                                            original_tex=str(final / f"{src_stem}.tex"), cfg=cfg,
+                                            proofread=bool(cfg.get("proofread", False)), kind="translation")
+            tf = mrep.get("translation", [])
+            if tf:
+                log(f"  ⚠ {len(tf)} translation terminology issue(s) — see {out_stem}.verification.json")
+                for t in tf[:8]:
+                    log(f"    ▸ {t['type']}: {t.get('term') or t.get('context')}")
+        except Exception as e:   # noqa: BLE001 — QA is additive; a failure must not lose the translation
+            log(f"mechanical-verify skipped ({e})")
     return 0 if pdf and not issues else 1
 
 

@@ -20,7 +20,7 @@ def _ws(meta: dict | None = None) -> tuple[tempfile.TemporaryDirectory, Path]:
     return tmp, ws
 
 
-PAPER_OK = {"venue": "MLSys 2027", "anonymize": True,
+PAPER_OK = {"paper_type": "research", "venue": "MLSys 2027", "anonymize": True,
             "authors": [{"name": "J. Lee", "affiliation": "X"}], "audience": "systems researchers"}
 PATENT_OK = {"inventors": ["Jimmy Lee"], "assignee": "self", "jurisdictions": ["US", "KR"],
              "filing_type": "provisional", "known_prior_art": "none known", "public_disclosure": "none"}
@@ -34,7 +34,7 @@ class MetaGateTest(unittest.TestCase):
         self.assertEqual(cm.exception.code, 3)
         qs = json.loads((ws / "meta.questions.json").read_text())
         self.assertEqual({q["key"] for q in qs},
-                         {"venue", "anonymize", "authors", "audience"})   # deadline optional, derive absent
+                         {"paper_type", "venue", "anonymize", "authors", "audience"})   # deadline optional, derive absent
         self.assertTrue(all(q["question"] and q["why"] for q in qs))
         tmp.cleanup()
 
@@ -45,7 +45,7 @@ class MetaGateTest(unittest.TestCase):
         tmp.cleanup()
 
     def test_partial_meta_asks_only_the_gaps(self):
-        tmp, ws = _ws({"venue": "MLSys", "anonymize": False})
+        tmp, ws = _ws({"paper_type": "research", "venue": "MLSys", "anonymize": False})
         with self.assertRaises(SystemExit):
             mi.enforce(ws, "paper", log=lambda *a: None)
         keys = {q["key"] for q in json.loads((ws / "meta.questions.json").read_text())}

@@ -433,6 +433,44 @@ def _self_fix(cfg: dict, ws: Path, max_iters: int = 2) -> None:
     log(f"self-fix: {len(remain)} issue(s) remain after {max_iters} iters" if remain else "self-fix: clean")
 
 
+def _try_global_layout_remedy(ws: Path) -> None:
+    """Deterministic FIRST pass for overfull boxes: inject preamble-level microtype + URL hyphenation
+    + \\emergencystretch (fixes many long-token/loose-line overflows AT ONCE — the right primitive for
+    large docs where per-line edits don't scale), recompile, and KEEP only if the overfull count
+    dropped (revert otherwise). No backend, no content change."""
+    import mechanical_verify
+    final = ws / "final"
+    tex_path = final / "paper.tex"
+    if not tex_path.exists():
+        return
+
+    def stats():
+        boxes = mechanical_verify.parse_overfull(
+            (final / "paper.log").read_text(errors="replace") if (final / "paper.log").exists() else "")
+        return len(boxes), sum(b["pt"] for b in boxes)
+
+    before_n, before_pt = stats()
+    if before_n == 0:
+        return
+    src = tex_path.read_text(encoding="utf-8", errors="replace")
+    new, applied = mechanical_verify.global_layout_remedy_tex(src)
+    if not applied:
+        return
+    tex_path.write_text(new, encoding="utf-8")
+    if compile_pdf(ws) is None:                     # remedy broke the build → revert
+        tex_path.write_text(src, encoding="utf-8"); compile_pdf(ws); return
+    after_n, after_pt = stats()
+    # KEEP unless it made things worse — these are preamble-only, strictly-beneficial packages, so a
+    # severity reduction (fewer boxes OR less total overflow) is worth keeping even on a count tie.
+    if after_n > before_n or after_pt > before_pt + 0.5:
+        log(f"global layout remedy ({', '.join(applied)}) worsened overfull "
+            f"({before_n}/{before_pt:.0f}pt → {after_n}/{after_pt:.0f}pt) — reverting")
+        tex_path.write_text(src, encoding="utf-8"); compile_pdf(ws)
+    else:
+        log(f"global layout remedy applied ({', '.join(applied)}): overfull "
+            f"{before_n}/{before_pt:.0f}pt → {after_n}/{after_pt:.0f}pt")
+
+
 def compile_pdf(ws: Path) -> Path | None:
     final = ws / "final"
     final.mkdir(exist_ok=True)
@@ -579,6 +617,11 @@ def main(argv=None) -> int:
 
     if args.to >= 6:
         pdf = compile_pdf(ws)
+        # deterministic FIRST pass for overfull: a global preamble remedy that fixes many boxes at
+        # once (scales to large docs), before the per-line backend loop.
+        if pdf and cfg.get("layout_remedy", True) and _verify_compile(ws / "final"):
+            _try_global_layout_remedy(ws)
+            pdf = (ws / "final" / "paper.pdf") if (ws / "final" / "paper.pdf").exists() else None
         # F4: if the deterministic self-check found render defects, feed them back into a bounded
         # fix loop (re-dispatch the backend to patch paper.tex, recompile, re-verify). Opt-out via
         # self_fix:false; the loop reverts any iteration that makes it worse.
@@ -595,6 +638,18 @@ def main(argv=None) -> int:
                 data = json.loads(vf.read_text()) if vf.exists() else {"issues": [], "figure_warnings": []}
                 data["vlm_findings"] = vlm
                 vf.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        # MECHANICAL VERIFICATION stage (fail-loud): overfull LOCATION map + text mechanics; the
+        # residual is reported (never silently shipped) even when the bounded fixes can't clear it.
+        if pdf:
+            import mechanical_verify
+            rep = mechanical_verify.verify(str(ws / "final"), cfg=cfg,
+                                           proofread=bool(cfg.get("proofread", False)))
+            if not rep["clean"]:
+                log(f"⚠ mechanical-verify NOT clean — {rep['overfull_count']} overfull "
+                    f"(worst {rep['worst_overfull_pt']}pt), {len(rep['text_mechanics'])} text defect(s); "
+                    f"see final/paper.verification.json")
+                for o in rep["overfull"][:8]:
+                    log(f"    ▸ overfull {o['pt']}pt at {o['loc']}")
         log(f"compiled: {pdf}" if pdf else "compile skipped/failed (no final/paper.tex or latexmk issue)")
     log("done")
     return 0

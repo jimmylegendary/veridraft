@@ -41,6 +41,11 @@
   "//self_fix": "after compile, feed self-check defects (overfull/clipped tables, missing figures, unresolved refs) back into a bounded backend fix loop; reverts any iteration that regresses",
   "self_fix_max_iters": 2,
 
+  "layout_remedy": true,
+  "//layout_remedy": "deterministic FIRST pass for overfull: inject preamble microtype + URL hyphenation + \\emergencystretch (fixes many boxes at once, scales to large docs); kept only if it does not worsen overfull",
+  "proofread": false,
+  "//proofread": "run the OPTIONAL bounded model proofread in the mechanical-verify stage (typos + translation-nuance + wrongly-translated technical terms); advisory only, never edits content",
+
   "_backend_examples": {
     "openclaw": { "backend": "openclaw", "agent": "taskops-bench", "model": "openai/gpt-5.5" },
     "claude-code": { "backend": "claude-code", "model": "claude-sonnet-5" },

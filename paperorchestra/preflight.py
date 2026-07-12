@@ -118,6 +118,21 @@ def check(ws: Path, kind: str = "paper") -> list[dict]:
         add("figures", AUTOFILL, "no figures and no plottable data — diagram figures can be derived "
             "from the idea/architecture", "diagramfill")
 
+    # 4b. reference figures — a SURVEY/STUDY paper must ground the figures it discusses from the cited
+    # PDFs (a research paper skips this). AUTOFILL runs the deterministic extractor when source PDFs
+    # are present; without them it is NEEDS-HUMAN (figures cannot be captured from nothing).
+    meta0 = meta_info.load_meta(ws)
+    if kind == "paper" and str(meta0.get("paper_type", "")).lower() in ("survey", "study", "review"):
+        srcs = list((inputs / "sources").glob("*.pdf")) if (inputs / "sources").is_dir() else []
+        if (ws / "reffigs" / "reffigs_index.json").exists():
+            add("reference-figures", OK, "reference-figure manifest present (reffigs/)")
+        elif srcs:
+            add("reference-figures", AUTOFILL, f"{len(srcs)} source PDF(s) in inputs/sources/ but no "
+                "figure manifest — capture (image · in-text reference · description) triples", "capturefigs")
+        else:
+            add("reference-figures", HUMAN, "a survey/study paper must ground the figures it discusses: "
+                "place the cited works' PDFs in inputs/sources/ (figures cannot be captured from nothing)")
+
     # 5. meta info — human-only (delegates to the meta gate)
     missing = meta_info.check_meta(ws, kind)["missing"]
     if missing:
@@ -173,12 +188,24 @@ skill's diagram rules: real layout engine, min inter-box gap, arrows inset, no L
 labels) into {ws}/inputs/figures/, plus a captions draft {ws}/inputs/figures/captions_draft.json.
 Diagrams only — NEVER a data plot with invented numbers. Then stop.""",
 }
-# Remediation ORDER matters: document the code first, then densify the idea FROM those docs.
-_REMEDY_ORDER = ["docfill", "densify-idea", "litfill", "diagramfill"]
+# Remediation ORDER matters: capture reference figures first (pre-writing input), document the code,
+# then densify the idea FROM those docs.
+_REMEDY_ORDER = ["capturefigs", "docfill", "densify-idea", "litfill", "diagramfill"]
+
+
+def _capture_reference_figures(cfg: dict, ws: Path) -> None:
+    """Deterministic remedy (NOT a model prompt): run the reference-figure extractor over the cited
+    PDFs in inputs/sources/ → reffigs/ (VLM descriptions layered on only if a vision_model is set)."""
+    import figure_extract_run
+    pdfs = sorted((ws / "inputs" / "sources").glob("*.pdf"))
+    if not pdfs:
+        log("capturefigs: no PDFs in inputs/sources/ — skipping (surfaced as NEEDS-HUMAN)"); return
+    figure_extract_run.run(cfg, pdfs, ws / "reffigs")
 
 
 def remediate(cfg: dict, ws: Path, items: list[dict]) -> list[str]:
-    """Dispatch the backend once per AUTOFILL gap, in dependency order. Returns remedies run."""
+    """Fill each AUTOFILL gap in dependency order. Most remedies dispatch the backend (grounded); the
+    reference-figure capture is a DETERMINISTIC script, not a prompt. Returns remedies run."""
     meta = meta_info.load_meta(ws)
     repo = meta.get("source_repo", "(not given)")
     todo = {i["remedy"]: i for i in items if i["status"] == AUTOFILL and i.get("remedy")}
@@ -187,8 +214,11 @@ def remediate(cfg: dict, ws: Path, items: list[dict]) -> list[str]:
         if key not in todo:
             continue
         log(f"remediate: {key} — {todo[key]['detail']}")
-        providers.dispatch(cfg, _REMEDIES[key].format(ws=ws, repo=repo, detail=todo[key]["detail"]),
-                           str(ws), timeout=(cfg.get("step_timeout_seconds") or 2400))
+        if key == "capturefigs":
+            _capture_reference_figures(cfg, ws)
+        else:
+            providers.dispatch(cfg, _REMEDIES[key].format(ws=ws, repo=repo, detail=todo[key]["detail"]),
+                               str(ws), timeout=(cfg.get("step_timeout_seconds") or 2400))
         ran.append(key)
     return ran
 

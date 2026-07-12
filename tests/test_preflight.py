@@ -9,7 +9,7 @@ from pathlib import Path
 
 import paperorchestra.preflight as pf
 
-META_OK = {"venue": "MLSys", "anonymize": True, "authors": [{"name": "J"}], "audience": "systems"}
+META_OK = {"paper_type": "research", "venue": "MLSys", "anonymize": True, "authors": [{"name": "J"}], "audience": "systems"}
 
 
 def _ws(idea="", exp="", bib="", meta=None, figs=0):
@@ -80,6 +80,42 @@ class PreflightCheckTest(unittest.TestCase):
     def test_figures_ok_when_numbers_plottable(self):
         tmp, ws = _ws(idea=RICH_IDEA, exp=RICH_EXP, bib=RICH_BIB, meta=META_OK, figs=0)
         self.assertEqual(_by(pf.check(ws, "paper"), "figures")["status"], pf.OK)
+        tmp.cleanup()
+
+
+class ReferenceFiguresGateTest(unittest.TestCase):
+    def _survey_ws(self, n_pdfs=0, manifest=False):
+        tmp, ws = _ws(idea=RICH_IDEA, exp=RICH_EXP, bib=RICH_BIB,
+                      meta=dict(META_OK, paper_type="survey"))
+        if n_pdfs:
+            (ws / "inputs" / "sources").mkdir()
+            for i in range(n_pdfs):
+                (ws / "inputs" / "sources" / f"p{i}.pdf").write_bytes(b"%PDF-1.4")
+        if manifest:
+            (ws / "reffigs").mkdir()
+            (ws / "reffigs" / "reffigs_index.json").write_text("{}")
+        return tmp, ws
+
+    def test_research_paper_has_no_reference_figures_check(self):
+        tmp, ws = _ws(idea=RICH_IDEA, exp=RICH_EXP, bib=RICH_BIB, meta=META_OK)  # paper_type=research
+        self.assertNotIn("reference-figures", {i["check"] for i in pf.check(ws, "paper")})
+        tmp.cleanup()
+
+    def test_survey_without_source_pdfs_is_needs_human(self):
+        tmp, ws = self._survey_ws(n_pdfs=0)
+        self.assertEqual(_by(pf.check(ws, "paper"), "reference-figures")["status"], pf.HUMAN)
+        tmp.cleanup()
+
+    def test_survey_with_source_pdfs_autofills(self):
+        tmp, ws = self._survey_ws(n_pdfs=3)
+        item = _by(pf.check(ws, "paper"), "reference-figures")
+        self.assertEqual(item["status"], pf.AUTOFILL)
+        self.assertEqual(item["remedy"], "capturefigs")
+        tmp.cleanup()
+
+    def test_survey_with_manifest_is_ok(self):
+        tmp, ws = self._survey_ws(n_pdfs=3, manifest=True)
+        self.assertEqual(_by(pf.check(ws, "paper"), "reference-figures")["status"], pf.OK)
         tmp.cleanup()
 
 

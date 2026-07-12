@@ -24,6 +24,10 @@ from pathlib import Path
 # ask=True → only a human can answer; drafting is BLOCKED until inputs/meta.json supplies it.
 # ask=False → derivable; the drafting prompt derives it (grounded in inputs) when absent.
 PAPER_FIELDS = [
+    {"key": "paper_type", "ask": True, "example": "research", "choices": ["research", "survey"],
+     "question": "Is this a RESEARCH paper (your own experiments) or a SURVEY/STUDY paper (reviewing others' work)?",
+     "why": "A survey grounds and discusses OTHER works' figures, so it must capture reference figures "
+            "from the cited PDFs before drafting — a required pre-writing step research papers skip."},
     {"key": "venue", "ask": True, "example": "MLSys 2027 / IEEE Micro / arXiv-only",
      "question": "Which venue is this paper targeting (conference/journal/workshop/arXiv)?",
      "why": "Venue drives formatting, tone, page budget, and the AI-disclosure policy check."},
