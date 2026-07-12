@@ -100,7 +100,7 @@ bash verify.sh          # compile + full test suite + acceptance scenarios (all 
 
 ```
 import-bundle → gate → assemble → draft → review → readiness → publish                     # paper
-              gate → patent-prior-art → patentability → patent-idea → draft-patent → patent-review   # patent
+              gate → patent-prior-art → patentability → patent-idea → patent-preflight → draft-patent → patent-review   # patent
 release-interlock (human) · reviews · events · status · adapters · venues
 ```
 
@@ -118,7 +118,8 @@ model-free contract; a connected model only raises quality:
 | **Meta gate** ([`meta_info.py`](paperorchestra/meta_info.py)) | blocks drafting until human-only meta (venue/authors · inventors/jurisdiction/disclosure) is answered; exit 3 + machine-readable questions | — |
 | **Deep survey** ([`literature-review-agent`](skills/literature-review-agent)) | S2 citation-graph snowballing to saturation (`snowball.py`), dedup, fan-out cap, TF-IDF theme clustering — every paper still S2-verified | discovered-work relevance & prose |
 | **Reference figures** ([`reference-figure-extractor`](skills/reference-figure-extractor)) | for a **survey** (`paper_type`), preflight REQUIRES capturing (image · in-text reference window · caption) triples from cited PDFs (AUTOFILL if PDFs supplied, else NEEDS-HUMAN) — third-party provenance stamped; not a skippable skill | VLM figure descriptions |
-| **Mechanical verification** (final QA, [`mechanical_verify.py`](paperorchestra/mechanical_verify.py)) | overfull **location map** (pt + source line + count, FAIL-LOUD) + global layout remedy (microtype/URL-hyphens/`\emergencystretch`, scales to large docs); text mechanics (doubled words/punct, leaked control seq); translation **terminology preservation** (English terms kept; Hangul-in-code flagged) | bounded model proofread (typos + translation nuance), advisory |
+| **Mechanical verification** (final QA, [`mechanical_verify.py`](paperorchestra/mechanical_verify.py)) | overfull **location map** (pt + source line + count, FAIL-LOUD) + global layout remedy (microtype/URL-hyphens/`\emergencystretch`, scales to large docs); text mechanics (doubled words/punct, leaked control seq); translation **terminology preservation** (English terms kept; CJK-in-code flagged); for patents also **reference-numeral** §112 consistency — applied to BOTH the paper and patent drafts | bounded model proofread (typos + translation nuance), advisory |
+| **Patent pre-draft** ([`patent-preflight`](veridraft/core/harness.py)) | fail-loud readiness: was the prior-art search run and the idea memo completed before drafting? (surfaced in the draft's open-items, not a silent skip) | — |
 | **Patent drawings** ([`patent_figures.py`](paperorchestra/patent_figures.py)) | image gate: monochrome/line-art + crowding + objects-too-close geometry, bounded regenerate loop | VLM crossing/overlap adjudication |
 | **Prior-art search** ([`priorart.py`](veridraft/core/priorart.py)) | element-level §102 anticipation + §103 combination derivation; honesty invariant (absence ≠ novelty; verdict forced non-clearance) | keyless agentic search (Google Patents + S2 NPL) |
 | **Patent-idea memo** ([`patent_idea.py`](veridraft/core/patent_idea.py)) | completeness gate: all sections + verbatim boundary + §102/§103 keep open items | the drafted concept + case |

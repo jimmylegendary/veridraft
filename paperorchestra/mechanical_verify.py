@@ -160,6 +160,41 @@ def translation_term_check(orig_tex: str, trans_tex: str, cap: int = 40) -> list
     return findings[:cap]
 
 
+# ---- patent-specific: reference-numeral consistency (§112) --------------------------------------
+
+# words that precede a number WITHOUT it being an element reference numeral
+_NUM_STOP = {"fig", "figure", "figs", "figures", "eq", "equation", "section", "table", "claim",
+             "claims", "step", "page", "line", "chapter", "part", "no", "item", "example", "embodiment",
+             "in", "of", "the", "to", "at", "by", "on", "and", "or", "a", "an"}
+
+
+def reference_numeral_check(tex: str, cap: int = 30) -> list[dict]:
+    """Patent drawings label each element with a reference numeral (usually a 2-3 digit even number).
+    Deterministic §112 mechanics on the spec prose: the SAME numeral must denote ONE element, and a
+    numeral introduced once but never recited is suspicious. (Claim-STRUCTURE is checked elsewhere.)"""
+    prose = re.sub(r"\\[A-Za-z@]+\*?(?:\[[^\]]*\])?(?:\{[^}]*\})?", " ", tex)   # strip commands to prose
+    num_to_elems: dict[str, set] = {}
+    num_count: dict[str, int] = {}
+    for m in re.finditer(r"\b([A-Za-z][A-Za-z\-]{2,20})\s+(\d{2,4})\b", prose):
+        elem, num = m.group(1).lower(), m.group(2)
+        num_count[num] = num_count.get(num, 0) + 1
+        if elem not in _NUM_STOP:
+            num_to_elems.setdefault(num, set()).add(elem)
+    findings: list[dict] = []
+    for num, elems in sorted(num_to_elems.items()):
+        if len(elems) >= 2:
+            findings.append({"type": "numeral-multiple-elements", "numeral": num,
+                             "note": f"reference numeral {num} labels multiple elements "
+                                     f"({', '.join(sorted(elems))}) — one numeral must denote ONE "
+                                     "element (§112 definiteness)"})
+    for num, elems in sorted(num_to_elems.items()):
+        if num_count.get(num, 0) == 1:
+            findings.append({"type": "numeral-introduced-once", "numeral": num,
+                             "note": f"reference numeral {num} ({next(iter(elems))}) appears once — "
+                                     "recite each drawing numeral in the Detailed Description"})
+    return findings[:cap]
+
+
 # ---- GLOBAL LAYOUT REMEDY (scales to large docs) ------------------------------------------------
 
 def _kpsewhich(sty: str) -> bool:
@@ -262,10 +297,16 @@ def verify(final_dir: str, tex_name: str = "paper.tex", original_tex: str | None
     }
     if original_tex:
         report["translation"] = translation_term_check(_read(Path(original_tex)), tex)
+    numeral_defects = []
+    if kind == "patent":
+        report["reference_numerals"] = reference_numeral_check(tex)
+        # only a numeral labelling MULTIPLE elements is a hard defect; introduced-once is advisory
+        numeral_defects = [f for f in report["reference_numerals"]
+                           if f["type"] == "numeral-multiple-elements"]
     # FAIL-LOUD: a missing build OR any layout/mechanics/translation defect blocks "clean" — a
     # failed/absent compile (no PDF), a wrong --final path, or a wrong --tex stem never reads clean.
     report["clean"] = build_ok and not (overfull or mech or report.get("missing_figures")
-                                        or report.get("translation"))
+                                        or report.get("translation") or numeral_defects)
     if proofread and cfg:
         report["proofread"] = _model_proofread(cfg, rendered, kind, bool(original_tex))
     (final / f"{stem}.verification.json").write_text(json.dumps(report, indent=2, ensure_ascii=False),

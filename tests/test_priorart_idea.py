@@ -137,6 +137,41 @@ class PatentIdeaCompletenessTest(unittest.TestCase):
         self.assertTrue(any("novelty" in f for f in rep["failures"]))
 
 
+class PatentPreflightTest(unittest.TestCase):
+    def _harness(self):
+        import tempfile as _tf
+        from veridraft.config import HarnessConfig
+        from veridraft.core.harness import Harness
+        self._tmp = _tf.TemporaryDirectory()
+        cfg = HarnessConfig(); cfg.gate_profile = "us-utility-patent"; cfg.data_dir = self._tmp.name
+        h = Harness(cfg)
+        h.import_bundle("examples/bundle_demo/bundle.json"); h.run_gate("demo-2026-07")
+        return h
+
+    def test_preflight_not_ready_before_pre_steps(self):
+        h = self._harness()
+        try:
+            r = h.patent_preflight("demo-2026-07")
+            self.assertFalse(r["ready"])
+            self.assertFalse(r["prior_art_run"])
+            self.assertFalse(r["idea_complete"])
+            self.assertTrue(any("prior-art" in g for g in r["gaps"]))
+        finally:
+            h.close(); self._tmp.cleanup()
+
+    def test_prior_art_flips_the_flag_and_draft_surfaces_gaps(self):
+        h = self._harness()
+        try:
+            h.patent_prior_art("demo-2026-07")
+            self.assertTrue(h.patent_preflight("demo-2026-07")["prior_art_run"])
+            d = h.draft_patent("demo-2026-07", title="X")
+            self.assertIn("pre_draft", d)
+            self.assertFalse(d["pre_draft"]["ready"])          # idea still incomplete
+            self.assertTrue(any(o.startswith("PRE-DRAFT:") for o in d["open_items"]))
+        finally:
+            h.close(); self._tmp.cleanup()
+
+
 class DegradedAdapterTest(unittest.TestCase):
     def test_minimal_patent_writes_honest_priorart_and_skeleton_idea(self):
         from veridraft.adapters.engine_minimal_patent import MinimalPatentEngineAdapter

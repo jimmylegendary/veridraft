@@ -118,6 +118,30 @@ class GlobalRemedyTest(unittest.TestCase):
         self.assertNotIn("url-hyphens", applied)      # hyperref in the list manages url
 
 
+class ReferenceNumeralTest(unittest.TestCase):
+    def test_same_numeral_for_multiple_elements_is_a_defect(self):
+        spec = ("The system 100 has a scheduler 10 and a memory 12. The scheduler 10 acts. "
+                "In another embodiment the accelerator 10 also helps.")   # 10 → scheduler AND accelerator
+        f = mv.reference_numeral_check(spec)
+        mult = [x for x in f if x["type"] == "numeral-multiple-elements"]
+        self.assertEqual(len(mult), 1)
+        self.assertEqual(mult[0]["numeral"], "10")
+
+    def test_figure_claim_step_numbers_not_treated_as_element_numerals(self):
+        f = mv.reference_numeral_check("FIG. 12 and claim 12 and step 12 and section 12.")
+        self.assertEqual([x for x in f if x["type"] == "numeral-multiple-elements"], [])
+
+    def test_patent_verify_includes_reference_numerals_and_blocks_clean(self):
+        final = Path(tempfile.mkdtemp())
+        (final / "patent.pdf").write_bytes(b"%PDF")     # build_ok
+        (final / "patent.log").write_text("")
+        (final / "patent.tex").write_text(
+            r"\documentclass{article}\begin{document}a scheduler 10 and an accelerator 10 differ.\end{document}")
+        rep = mv.verify(str(final), tex_name="patent.tex", kind="patent")
+        self.assertIn("reference_numerals", rep)
+        self.assertFalse(rep["clean"])                  # numeral-multiple-elements blocks clean
+
+
 class VerifyFailLoudTest(unittest.TestCase):
     def test_verify_reports_and_is_not_clean_with_overfull(self):
         final = Path(tempfile.mkdtemp())

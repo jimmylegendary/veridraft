@@ -112,6 +112,20 @@ def cmd_patent_prior_art(args) -> int:
         h.close()
 
 
+def cmd_patent_preflight(args) -> int:
+    h = _harness(args)
+    try:
+        r = h.patent_preflight(args.bundle_id, title=args.title)
+        print(f"patent preflight: {'READY' if r['ready'] else 'NOT READY'}  "
+              f"(prior_art_run={r['prior_art_run']}  idea_complete={r['idea_complete']}  "
+              f"patentability={r['patentability']})")
+        for g in r["gaps"]:
+            print(f"  ✗ {g}")
+        return 0 if r["ready"] else 2
+    finally:
+        h.close()
+
+
 def cmd_patent_idea(args) -> int:
     h = _harness(args)
     try:
@@ -133,6 +147,9 @@ def cmd_draft_patent(args) -> int:
         d = h.draft_patent(args.bundle_id, title=args.title)
         print(f"patent draft {d['artifact_id']} via engine={d['engine']} renderer={d['renderer']} "
               f"patentability={d['patentability']}")
+        pd = d.get("pre_draft", {})
+        if pd and not pd.get("ready", True):
+            print(f"  ⚠ pre-draft NOT ready — prior_art_run={pd['prior_art_run']} idea_complete={pd['idea_complete']}")
         print(f"  claims: {d['independent_claims']} independent + {d['dependent_claims']} dependent")
         print(f"  PDF: {d['patent_pdf']}")
         print(f"  ⚠️  {d['note']}")
@@ -430,6 +447,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("bundle_id")
     s.add_argument("--title", default="Invention")
     s.set_defaults(func=cmd_patent_prior_art)
+
+    s = sub.add_parser("patent-preflight", help="pre-draft readiness: was prior-art searched + idea memo completed?")
+    s.add_argument("bundle_id")
+    s.add_argument("--title", default="Invention")
+    s.set_defaults(func=cmd_patent_preflight)
 
     s = sub.add_parser("patent-idea", help="pre-filing idea memo: core concept + patentability case + concept figures")
     s.add_argument("bundle_id")

@@ -100,6 +100,42 @@ def _compile_and_validate(final: Path) -> None:
         log(f"compile attempt {attempt}: patent.pdf missing/corrupt" + (" — retrying" if attempt == 1 else ""))
 
 
+def _mechanical_verify(cfg: dict, final: Path) -> None:
+    """Fail-loud QA on the patent draft: a global layout remedy first (deterministic, scales), then
+    the overfull LOCATION map + text mechanics + reference-numeral (§112) consistency."""
+    import mechanical_verify
+    tex = final / "patent.tex"
+    if not tex.exists():
+        return
+
+    def overfull_pt():
+        return sum(o["pt"] for o in mechanical_verify.parse_overfull(
+            (final / "patent.log").read_text(errors="replace") if (final / "patent.log").exists() else ""))
+
+    before = overfull_pt()
+    if before > 0:
+        src = tex.read_text(encoding="utf-8", errors="replace")
+        new, applied = mechanical_verify.global_layout_remedy_tex(src)
+        if applied:
+            tex.write_text(new, encoding="utf-8")
+            _compile_and_validate(final)
+            if overfull_pt() > before + 0.5:      # worsened → revert
+                tex.write_text(src, encoding="utf-8"); _compile_and_validate(final)
+            else:
+                log(f"global layout remedy applied ({', '.join(applied)})")
+    rep = mechanical_verify.verify(str(final), tex_name="patent.tex", cfg=cfg, kind="patent",
+                                   proofread=bool(cfg.get("proofread", False)))
+    if not rep["clean"]:
+        nd = [f for f in rep.get("reference_numerals", []) if f["type"] == "numeral-multiple-elements"]
+        log(f"⚠ patent mechanical-verify NOT clean — {rep['overfull_count']} overfull "
+            f"(worst {rep['worst_overfull_pt']}pt), {len(rep['text_mechanics'])} text, "
+            f"{len(nd)} numeral defect(s); see final/patent.verification.json")
+        for o in rep["overfull"][:6]:
+            log(f"    ▸ overfull {o['pt']}pt at {o['loc']}")
+        for f in nd[:6]:
+            log(f"    ▸ {f['note']}")
+
+
 def draft(cfg: dict, ws: Path, force: bool = False) -> int:
     final = ws / "final"
     final.mkdir(parents=True, exist_ok=True)
@@ -138,6 +174,7 @@ def draft(cfg: dict, ws: Path, force: bool = False) -> int:
     else:
         log("no drawings in figures/ — a filing normally requires drawings (attorney open item)")
     _compile_and_validate(final)
+    _mechanical_verify(cfg, final)     # fail-loud layout + text + reference-numeral QA
     log("patent draft ready (final/patent.tex); NEVER filed — attorney review required")
     return 0
 

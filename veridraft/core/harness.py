@@ -745,6 +745,37 @@ class Harness:
                 "note": "Pre-filing idea memo — argues a patentability CASE, not a conclusion; a "
                         "professional search + attorney review remain mandatory before filing."}
 
+    def patent_preflight(self, bundle_id: str, title: str = "Invention") -> dict:
+        """Pre-draft readiness (invocation guarantee): were the prior-art search and idea memo run
+        before drafting? Surfaced fail-loud so a patent is not silently drafted on UNSCREENED prior
+        art / an incomplete idea. Not a hard block by default (a human may have searched externally)."""
+        ws, _claims, _results, screen = self._assemble_patent_inputs(bundle_id, title)
+        return self._patent_readiness(ws, screen)
+
+    def _patent_readiness(self, ws, screen: dict) -> dict:
+        pa = priorart_mod.load(ws)
+        idea_md = ws / "idea" / "patent_idea.md"
+        idea_complete = False
+        if idea_md.exists():
+            case = {}
+            cp = ws / "idea" / "patentability_case.json"
+            if cp.exists():
+                try:
+                    case = json.loads(cp.read_text(encoding="utf-8"))
+                except ValueError:
+                    case = {}
+            idea_complete = patent_idea_mod.completeness(
+                idea_md.read_text(encoding="utf-8"), case, pa)["passed"]
+        gaps = []
+        if pa is None:
+            gaps.append("prior-art search NOT run — run `patent-prior-art` first (102/103 UNSCREENED)")
+        if not idea_complete:
+            gaps.append("patent-idea memo missing/incomplete — run `patent-idea` first")
+        if screen.get("verdict") == "weak":
+            gaps.append("patentability WEAK — some substrate claims lack enablement evidence")
+        return {"prior_art_run": pa is not None, "idea_complete": idea_complete,
+                "patentability": screen.get("verdict"), "gaps": gaps, "ready": not gaps}
+
     def _assemble_patent_inputs(self, bundle_id: str, title: str):
         """Shared: assemble the patent workspace inputs/ from gated claims (idempotent; preserves any
         priorart.json already written). Returns (ws, claims, results, screen)."""
@@ -770,6 +801,8 @@ class Harness:
         ws, claims, results, screen = self._assemble_patent_inputs(bundle_id, title)
         if screen["verdict"] == "no-go":
             raise RuntimeError("patentability screen NO-GO: " + " ".join(screen["rationale"]))
+        # invocation guarantee: surface (fail-loud) whether the pre-draft steps were run
+        readiness = self._patent_readiness(ws, screen)
 
         engine = self._adapter("patent_engine")
         out = engine.draft_patent(str(ws))
@@ -800,7 +833,9 @@ class Harness:
             "patent_pdf": out.paper_pdf_path, "patent_tex": out.paper_tex_path,
             "independent_claims": out.scores.get("independent_claims"),
             "dependent_claims": out.scores.get("dependent_claims"),
-            "patentability": screen["verdict"], "open_items": out.provenance.get("open_items", []),
+            "patentability": screen["verdict"],
+            "open_items": [f"PRE-DRAFT: {g}" for g in readiness["gaps"]] + out.provenance.get("open_items", []),
+            "pre_draft": readiness,
             "needs_human": True, "note": "DRAFT, not a filing — human/attorney review is mandatory "
                                          "before any disclosure or filing (ADR-0004).",
         }
