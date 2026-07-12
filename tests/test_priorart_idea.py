@@ -159,6 +159,17 @@ class PatentPreflightTest(unittest.TestCase):
         finally:
             h.close(); self._tmp.cleanup()
 
+    def test_no_go_verdict_is_a_gap(self):
+        import tempfile as _tf
+        from pathlib import Path as _P
+        h = self._harness()
+        try:
+            r = h._patent_readiness(_P(_tf.mkdtemp()), {"verdict": "no-go"})
+            self.assertFalse(r["ready"])
+            self.assertTrue(any("NO-GO" in g for g in r["gaps"]))    # not silently READY
+        finally:
+            h.close(); self._tmp.cleanup()
+
     def test_prior_art_flips_the_flag_and_draft_surfaces_gaps(self):
         h = self._harness()
         try:

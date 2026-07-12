@@ -771,7 +771,10 @@ class Harness:
             gaps.append("prior-art search NOT run — run `patent-prior-art` first (102/103 UNSCREENED)")
         if not idea_complete:
             gaps.append("patent-idea memo missing/incomplete — run `patent-idea` first")
-        if screen.get("verdict") == "weak":
+        v = screen.get("verdict")
+        if v == "no-go":
+            gaps.append("patentability NO-GO — no P1/P2 patentable substrate; drafting is blocked")
+        elif v == "weak":
             gaps.append("patentability WEAK — some substrate claims lack enablement evidence")
         return {"prior_art_run": pa is not None, "idea_complete": idea_complete,
                 "patentability": screen.get("verdict"), "gaps": gaps, "ready": not gaps}

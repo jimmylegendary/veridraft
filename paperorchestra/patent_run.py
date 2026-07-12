@@ -119,8 +119,11 @@ def _mechanical_verify(cfg: dict, final: Path) -> None:
         if applied:
             tex.write_text(new, encoding="utf-8")
             _compile_and_validate(final)
-            if overfull_pt() > before + 0.5:      # worsened → revert
+            pdf = final / "patent.pdf"
+            # revert if the remedy BROKE the build (no valid PDF) OR worsened overfull
+            if not _pdf_ok(pdf) or overfull_pt() > before + 0.5:
                 tex.write_text(src, encoding="utf-8"); _compile_and_validate(final)
+                log("global layout remedy reverted (broke compile / worsened overfull)")
             else:
                 log(f"global layout remedy applied ({', '.join(applied)})")
     rep = mechanical_verify.verify(str(final), tex_name="patent.tex", cfg=cfg, kind="patent",

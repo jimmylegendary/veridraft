@@ -168,30 +168,43 @@ _NUM_STOP = {"fig", "figure", "figs", "figures", "eq", "equation", "section", "t
              "in", "of", "the", "to", "at", "by", "on", "and", "or", "a", "an"}
 
 
+def _numeral_prose(tex: str) -> str:
+    """Prose for numeral analysis: LaTeX ties → space, KEEP the text of formatting commands
+    (\\textbf{scheduler} → scheduler), strip other commands + comments."""
+    t = re.sub(r"(?m)%.*$", " ", tex)
+    t = t.replace("~", " ")                                    # LaTeX tie / nbsp binds elem to numeral
+    t = re.sub(r"\\(?:textbf|textit|texttt|textsc|textsf|textrm|emph|mathrm|mathbf|underline)"
+               r"\{([^}]*)\}", r"\1", t)                       # keep the element name inside \textbf{}
+    return re.sub(r"\\[A-Za-z@]+\*?(?:\[[^\]]*\])?(?:\{[^}]*\})?", " ", t)
+
+
+def _norm_elem(w: str) -> str:
+    """Canonical element key so surface variants of ONE element collapse (scheduler/schedulers,
+    sub-system/subsystem) and don't read as two elements."""
+    n = w.lower().replace("-", "")
+    return re.sub(r"(?:es|s)$", "", n) if len(n) > 4 else n    # strip a trailing plural (guard short)
+
+
 def reference_numeral_check(tex: str, cap: int = 30) -> list[dict]:
-    """Patent drawings label each element with a reference numeral (usually a 2-3 digit even number).
-    Deterministic §112 mechanics on the spec prose: the SAME numeral must denote ONE element, and a
-    numeral introduced once but never recited is suspicious. (Claim-STRUCTURE is checked elsewhere.)"""
-    prose = re.sub(r"\\[A-Za-z@]+\*?(?:\[[^\]]*\])?(?:\{[^}]*\})?", " ", tex)   # strip commands to prose
+    """Patent §112 mechanics on the spec prose. Detects ONLY the unambiguous PARENTHETICAL convention
+    ("processor (110)") — this is the reliable form, and it avoids colliding with plain-prose
+    quantities ("512 activations"), which have no parentheses. Flags the SAME reference numeral used
+    for MULTIPLE distinct elements (a definiteness defect). If the draft uses no parenthetical
+    numerals the check is inert (safe). (Claim STRUCTURE is checked separately in core/lints.py.)"""
+    prose = _numeral_prose(tex)
     num_to_elems: dict[str, set] = {}
-    num_count: dict[str, int] = {}
-    for m in re.finditer(r"\b([A-Za-z][A-Za-z\-]{2,20})\s+(\d{2,4})\b", prose):
-        elem, num = m.group(1).lower(), m.group(2)
-        num_count[num] = num_count.get(num, 0) + 1
-        if elem not in _NUM_STOP:
-            num_to_elems.setdefault(num, set()).add(elem)
+    for m in re.finditer(r"\b([A-Za-z][A-Za-z\-]{2,20})\s*\(\s*(\d{2,4})\s*\)", prose):
+        raw, num = m.group(1), m.group(2)
+        if _norm_elem(raw) in _NUM_STOP or raw.lower() in _NUM_STOP:
+            continue
+        num_to_elems.setdefault(num, {})[_norm_elem(raw)] = raw    # normalized key → a raw label
     findings: list[dict] = []
     for num, elems in sorted(num_to_elems.items()):
         if len(elems) >= 2:
             findings.append({"type": "numeral-multiple-elements", "numeral": num,
-                             "note": f"reference numeral {num} labels multiple elements "
-                                     f"({', '.join(sorted(elems))}) — one numeral must denote ONE "
-                                     "element (§112 definiteness)"})
-    for num, elems in sorted(num_to_elems.items()):
-        if num_count.get(num, 0) == 1:
-            findings.append({"type": "numeral-introduced-once", "numeral": num,
-                             "note": f"reference numeral {num} ({next(iter(elems))}) appears once — "
-                                     "recite each drawing numeral in the Detailed Description"})
+                             "note": f"reference numeral ({num}) labels multiple elements "
+                                     f"({', '.join(sorted(elems.values()))}) — one numeral must denote "
+                                     "ONE element (§112 definiteness)"})
     return findings[:cap]
 
 

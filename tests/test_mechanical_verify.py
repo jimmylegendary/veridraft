@@ -119,24 +119,36 @@ class GlobalRemedyTest(unittest.TestCase):
 
 
 class ReferenceNumeralTest(unittest.TestCase):
-    def test_same_numeral_for_multiple_elements_is_a_defect(self):
-        spec = ("The system 100 has a scheduler 10 and a memory 12. The scheduler 10 acts. "
-                "In another embodiment the accelerator 10 also helps.")   # 10 → scheduler AND accelerator
-        f = mv.reference_numeral_check(spec)
-        mult = [x for x in f if x["type"] == "numeral-multiple-elements"]
-        self.assertEqual(len(mult), 1)
-        self.assertEqual(mult[0]["numeral"], "10")
+    def _mult(self, tex):
+        return [x for x in mv.reference_numeral_check(tex) if x["type"] == "numeral-multiple-elements"]
 
-    def test_figure_claim_step_numbers_not_treated_as_element_numerals(self):
-        f = mv.reference_numeral_check("FIG. 12 and claim 12 and step 12 and section 12.")
-        self.assertEqual([x for x in f if x["type"] == "numeral-multiple-elements"], [])
+    def test_same_numeral_for_multiple_elements_is_a_defect(self):
+        # PARENTHETICAL convention — (10) labels both scheduler and accelerator
+        f = self._mult("a scheduler (10) coupled to a memory (12); the accelerator (10) also acts.")
+        self.assertEqual(len(f), 1)
+        self.assertEqual(f[0]["numeral"], "10")
+
+    def test_plain_prose_quantities_are_not_reference_numerals(self):
+        # bare quantities (no parens) must NEVER be treated as numerals — the old false-positive
+        self.assertEqual(self._mult("each layer produces 512 activations; the FFN outputs 512 values."), [])
+
+    def test_plural_and_hyphen_variants_are_one_element(self):
+        self.assertEqual(self._mult("the scheduler (10) and the schedulers (10) cooperate."), [])
+        self.assertEqual(self._mult("a sub-system (12) and the subsystem (12) connect."), [])
+
+    def test_tie_and_formatting_are_handled(self):
+        self.assertEqual(len(self._mult(r"the scheduler~(10) and the buffer~(10) differ.")), 1)
+        self.assertEqual(len(self._mult(r"\textbf{scheduler} (10) and \textbf{memory} (10) differ.")), 1)
+
+    def test_figure_claim_numbers_not_treated_as_element_numerals(self):
+        self.assertEqual(self._mult("see figure (12) and claim (12) and step (12)."), [])
 
     def test_patent_verify_includes_reference_numerals_and_blocks_clean(self):
         final = Path(tempfile.mkdtemp())
         (final / "patent.pdf").write_bytes(b"%PDF")     # build_ok
         (final / "patent.log").write_text("")
         (final / "patent.tex").write_text(
-            r"\documentclass{article}\begin{document}a scheduler 10 and an accelerator 10 differ.\end{document}")
+            r"\documentclass{article}\begin{document}a scheduler (10) and an accelerator (10) differ.\end{document}")
         rep = mv.verify(str(final), tex_name="patent.tex", kind="patent")
         self.assertIn("reference_numerals", rep)
         self.assertFalse(rep["clean"])                  # numeral-multiple-elements blocks clean
