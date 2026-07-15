@@ -200,6 +200,26 @@ DIFF against the original — anything the marketing version *adds* is the viola
 So you can market as hard as the evidence allows and not one inch further — *no marketing claim ships
 without a warrant.* (P1: the gate + metadata kit. Roadmap in [`docs/marketing-flow-proposal.md`](docs/marketing-flow-proposal.md).)
 
+### Naturalize — a readability copyedit, NOT a "humanizer"
+
+`paperorchestra/naturalize_run.py` produces a **natural-reading second version**
+(`final/<source>-natural.tex(.pdf)`) that reads like fluent human academic prose — removing AI-ese
+("it is important to note", "delve", empty copulas), varying sentence rhythm, tightening. It is the
+**honesty-first alternative to an AI "humanizer"**: humanizers exist to *evade AI detectors*
+(Turnitin/GPTZero), which is detection-evasion — an integrity violation (explicit COPE retraction
+grounds since Aug 2025) and unreliable (Turnitin's 2026 update flags paraphrased output). Naturalize
+does the opposite by construction:
+
+- It **never reads, targets, or optimizes against any detector score** — there is no detector input
+  anywhere in the runner; "lower a detection score" is never a valid edit. The goal is the *reader's*
+  clarity (better prose incidentally reads as more human, but that is a side effect, not the aim).
+- A **deterministic honesty gate** (`naturalize_lints.py`, DIFF vs original) fails the version on any
+  changed **number**, **citation/ref key**, or **equation**, on a **strengthened claim**
+  ("may reduce" → "reduces"/"proves"), or on a **removed AI-use disclosure**.
+- The **AI-use disclosure is preserved**, and `draft_disclosure()` writes the truthful statement to
+  place in Methods/Acknowledgements (mapped to the venue). Honesty is *disclose the assistance and
+  stand behind the content* — not *pass the detector*.
+
 ## Architecture
 
 Hexagonal **ports & adapters**: `source`, `writing_engine`, `patent_engine`, `sink`, `novelty`,
