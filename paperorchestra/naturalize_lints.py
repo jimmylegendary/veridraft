@@ -35,6 +35,35 @@ _HEDGE = re.compile(
     r"\b(?:may|might|could|appears?|seems?|suggest(?:s|ed)?|indicat(?:e|es|ed)|tend(?:s|ed)?|"
     r"potential(?:ly)?|possibl[ey]|likely|arguably|relatively|approximately|roughly|generally|"
     r"typically|often|largely|partially|somewhat|associated with)\b", re.I)
+# a RESULT/claim verb — the payload of an empirical claim
+_CLAIM_VERB = re.compile(
+    r"\b(?:reduc\w+|increas\w+|improv\w+|decreas\w+|lower\w*|rais\w+|boost\w+|outperform\w*|achiev\w+|"
+    r"yield\w+|enabl\w+|prevent\w+|caus\w+|surpass\w*|accelerat\w+|speed\w*|outpace\w*|beat\w+|scal\w+|"
+    r"cut\w*|shrink\w*|halv\w+|doubl\w+|eliminat\w+)\b", re.I)
+_EPISTEMIC = re.compile(
+    r"\b(?:may|might|could|would|suggest\w*|indicat\w*|appears?|seems?|potential\w*|possibl[ey]|"
+    r"likely|tend(?:s|ed)?)\b", re.I)
+
+
+def _claim_balance(prose: str) -> tuple[int, int]:
+    """(hedged_claims, bare_claims): each result-verb occurrence, classified by whether an epistemic
+    hedge governs it (within a short look-back window). De-hedging turns a hedged claim into a bare
+    one, so it shows as hedged↓ AND bare↑ — robust to a verb reword (may reduce → may cut keeps both)
+    and to dropping a redundant/non-claim hedge (the verb stays hedged)."""
+    hedged = bare = 0
+    for m in _CLAIM_VERB.finditer(prose):
+        w = prose[max(0, m.start() - 60):m.start()]
+        # keep only the CURRENT clause: cut at the nearest preceding clause boundary so a hedge in an
+        # adjacent clause ("we suggest X and our method reduces Y") doesn't count as governing the verb
+        cut = max(w.rfind(". "), w.rfind("; "), w.rfind(", "), w.rfind(" and "), w.rfind(" but "),
+                  w.rfind(" that "), w.rfind(" which "), w.rfind(" while "))
+        if cut >= 0:
+            w = w[cut + 1:]
+        if _EPISTEMIC.search(w):
+            hedged += 1
+        else:
+            bare += 1
+    return hedged, bare
 # an AI-use disclosure sentence
 _DISCLOSURE = re.compile(r"(?:generative AI|large language model|\bLLM\b|AI[- ]assist|AI writing|"
                          r"AI[- ]generated|with the (?:aid|help|assistance) of).{0,80}", re.I)
@@ -48,9 +77,33 @@ _MASK_RE = re.compile("|".join(f"(?:{p})" for p in _MASK_PATS), re.S)
 _KEY_RE = re.compile(r"\\(?:cite[a-z]*|ref|eqref|autoref|cref|Cref|label)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}")
 
 
+# Naturalize needs FULL number identity (a copyedit changes NO number), so — unlike the marketing
+# added-stat gate — it must also catch BARE integers (500 trials, 87 F1) and comma-grouped numbers
+# (1,000×). A dedicated matcher keeps the marketing regex (and its year/index tolerance) untouched.
+_NUM_UNIT = (r"(?:%|percent|×|x|-?fold|billion|million|thousand|trillion|hundred|ms|µs|us|ns|GB|MB|"
+             r"TB|KB|PB|FLOPs?|tokens?/s|epochs?|params?|parameters)")
+_NUM_RE = re.compile(
+    r"\d{1,3}(?:,\d{3})+(?:\.\d+)?\s?" + _NUM_UNIT + r"?"        # comma-grouped (+opt unit): 1,000x
+    + r"|\d+\.\d+\s?" + _NUM_UNIT + r"?"                         # decimal (+opt unit): 12.5%
+    + r"|\d+\s?" + _NUM_UNIT                                     # integer + REQUIRED unit: 7 billion
+    + r"|\b\d{2,}\b",                                            # bare integer >= 2 digits: 87, 500
+    re.I)
+
+
+def _norm_num(s: str) -> str:
+    s = re.sub(r"\s+", "", s).replace(",", "").lower()
+    m = re.match(r"(\d+(?:\.\d+)?)(.*)", s)
+    if not m:
+        return s
+    num, unit = m.group(1), m.group(2)
+    if "." in num:
+        num = num.rstrip("0").rstrip(".")
+    return num + unit
+
+
 def _numbers(text: str) -> Counter:
     prose = marketing_lints._prose(text)
-    return Counter(marketing_lints._norm_stat(m.group(0)) for m in marketing_lints._STAT_RE.finditer(prose))
+    return Counter(_norm_num(m.group(0)) for m in _NUM_RE.finditer(prose))
 
 
 def _keys(text: str) -> Counter:
@@ -60,13 +113,35 @@ def _keys(text: str) -> Counter:
     return Counter(keys)
 
 
+_VERBATIM_MARK = re.compile(r"\\verb\||\\begin\{(?:verbatim|lstlisting)\}")
+
+
 def _masks(text: str) -> Counter:
-    return Counter(re.sub(r"\s+", " ", m.group(0)).strip() for m in _MASK_RE.finditer(text))
+    out = []
+    for m in _MASK_RE.finditer(text):
+        span = m.group(0)
+        if _VERBATIM_MARK.search(span[:24]):
+            out.append("V:" + re.sub(r"\s+", " ", span).strip())   # code: interior spacing is meaningful
+        else:
+            out.append("M:" + re.sub(r"\s+", "", span))            # math: whitespace-insensitive ($a+b$==$a + b$)
+    return Counter(out)
 
 
-def _disclosures(text: str) -> set[str]:
-    prose = marketing_lints._prose(text)
-    return {re.sub(r"\s+", " ", m.group(0)).strip().lower()[:60] for m in _DISCLOSURE.finditer(prose)}
+def _disclosure_present(text: str) -> bool:
+    """An AI-use disclosure is present if ANY disclosure trigger appears — so rewording the sentence
+    (still present) does not read as removed; only a genuine removal blocks."""
+    return bool(_DISCLOSURE.search(marketing_lints._prose(text)))
+
+
+def _strong_key(tok: str) -> str:
+    """Collapse a strong-modal surface form to a family key so inflection isn't a false positive."""
+    t = tok.lower()
+    for stem, key in (("prov", "prove"), ("guarant", "guarantee"), ("ensur", "ensure"),
+                      ("eliminat", "eliminate"), ("optim", "optimal"), ("conclusiv", "conclusively"),
+                      ("definitiv", "definitively"), ("undeniabl", "undeniably"), ("invariabl", "invariably")):
+        if t.startswith(stem):
+            return key
+    return t
 
 
 def lint_naturalize(natural_tex: str, original_tex: str) -> dict:
@@ -98,23 +173,31 @@ def lint_naturalize(natural_tex: str, original_tex: str) -> dict:
         blocking.append(f"{n_changed} math/verbatim span(s) changed — a copyedit must leave "
                         "equations, inline math, and code byte-identical")
 
-    # CLAIM STRENGTHENING: a proof/absolute modal added that the original did not use
-    os_, ns = set(m.group(0).lower() for m in _STRONG.finditer(marketing_lints._prose(original_tex))), \
-        set(m.group(0).lower() for m in _STRONG.finditer(marketing_lints._prose(natural_tex)))
+    # CLAIM STRENGTHENING: a proof/absolute modal FAMILY added that the original did not use
+    os_ = {_strong_key(m.group(0)) for m in _STRONG.finditer(marketing_lints._prose(original_tex))}
+    ns = {_strong_key(m.group(0)) for m in _STRONG.finditer(marketing_lints._prose(natural_tex))}
     for s in sorted(ns - os_):
         blocking.append(f"claim strengthened: '{s}' appears in the naturalized version but not the "
                         "paper — a copyedit must not upgrade an epistemic claim")
 
-    # HEDGE preservation (advisory)
-    oh = len(_HEDGE.findall(marketing_lints._prose(original_tex)))
-    nh = len(_HEDGE.findall(marketing_lints._prose(natural_tex)))
-    if oh >= 4 and nh < 0.6 * oh:
-        advisory.append(f"hedges dropped from {oh} to {nh} — verify a 'may/suggests/likely' claim was "
-                        "not silently turned into an assertion")
+    # DE-HEDGING: a hedged claim ("may reduce") turned into a bare assertion ("reduces") shows as
+    # fewer hedged claims AND more bare claims → BLOCKING (epistemic drift the docstring promises).
+    op, npz = marketing_lints._prose(original_tex), marketing_lints._prose(natural_tex)
+    ohc, obc = _claim_balance(op)
+    nhc, nbc = _claim_balance(npz)
+    if nhc < ohc and nbc > obc:
+        blocking.append(f"{ohc - nhc} hedged claim(s) were de-hedged (e.g. 'may reduce' → 'reduces') — "
+                        "a copyedit must not upgrade a hedged claim into an assertion; reword, don't drop the hedge")
 
-    # DISCLOSURE preservation
-    lost = _disclosures(original_tex) - _disclosures(natural_tex)
-    if lost:
+    # overall hedge attrition, incl. filler hedges (advisory only)
+    oh, nh = len(_HEDGE.findall(op)), len(_HEDGE.findall(npz))
+    if oh >= 5 and nh < 0.6 * oh:
+        advisory.append(f"hedges dropped from {oh} to {nh} — verify no 'may/suggests/likely' claim was "
+                        "silently firmed up")
+
+    # DISCLOSURE preservation (present→absent only; a reworded-but-present disclosure is fine)
+    disclosure_in_original = _disclosure_present(original_tex)
+    if disclosure_in_original and not _disclosure_present(natural_tex):
         blocking.append("an AI-use disclosure statement present in the original is missing from the "
                         "naturalized version — the disclosure must never be removed")
 
@@ -124,7 +207,8 @@ def lint_naturalize(natural_tex: str, original_tex: str) -> dict:
             advisory.append(f"added superlative '{h}' not in the paper — soften or confirm it's earned")
             break
 
-    return {"blocking": blocking, "advisory": advisory}
+    return {"blocking": blocking, "advisory": advisory,
+            "disclosure_in_original": disclosure_in_original}
 
 
 # ---- AI-use disclosure auto-drafter (the honest counterpart to a "humanizer") -------------------

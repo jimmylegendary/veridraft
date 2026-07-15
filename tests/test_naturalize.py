@@ -50,7 +50,7 @@ class ContentChangeBlockingTest(unittest.TestCase):
         bad = ORIG.replace("may reduce latency", "reduces latency").replace(
             "Results appear promising", "This proves the method is optimal")
         blk = self._blk(bad)
-        self.assertTrue(any("proves" in b for b in blk))
+        self.assertTrue(any("prove" in b for b in blk))       # family key normalizes proves→prove
         self.assertTrue(any("optimal" in b for b in blk))
 
     def test_disclosure_removal_blocks(self):
@@ -58,13 +58,55 @@ class ContentChangeBlockingTest(unittest.TestCase):
         self.assertTrue(any("disclosure" in b for b in self._blk(bad)))
 
 
-class AdvisoryTest(unittest.TestCase):
-    def test_large_hedge_drop_is_advisory(self):
-        orig = ("The method may improve X. It might help Y. Results appear to suggest Z. "
-                "It could potentially assist W, and likely benefits V.")
-        stripped = "The method improves X. It helps Y. Results show Z. It assists W, and benefits V."
-        g = nl.lint_naturalize(stripped, orig)
-        self.assertTrue(any("hedges dropped" in a for a in g["advisory"]))
+class HedgeTest(unittest.TestCase):
+    ORIG = r"Our method may reduce latency and suggests that throughput improves \cite{a}. It might increase accuracy."
+
+    def test_de_hedging_a_claim_blocks(self):
+        # "may reduce" -> "reduces", "suggests" -> "shows", "might increase" -> "increases"
+        bad = r"Our method reduces latency and shows that throughput improves \cite{a}. It increases accuracy."
+        g = nl.lint_naturalize(bad, self.ORIG)
+        self.assertTrue(any("de-hedged" in b for b in g["blocking"]))
+
+    def test_verb_reword_keeping_hedges_passes(self):
+        # "may reduce" -> "may cut", "might increase" -> "might raise" — hedges preserved
+        good = r"Our approach may cut latency and suggests that throughput improves \cite{a}. It might raise accuracy."
+        g = nl.lint_naturalize(good, self.ORIG)
+        self.assertEqual([b for b in g["blocking"] if "epistemic" in b], [])
+
+
+class ReviewFixesTest(unittest.TestCase):
+    """Regressions for the 8 adversarial-review findings."""
+    def _blk(self, nat, orig):
+        return nl.lint_naturalize(nat, orig)["blocking"]
+
+    def test_bare_integer_and_comma_number_changes_block(self):
+        self.assertTrue(any("number" in b for b in self._blk("we ran 100 trials", "we ran 500 trials")))
+        self.assertTrue(any("number" in b for b in self._blk("87 F1 points", "85 F1 points")))
+        self.assertTrue(any("number" in b for b in self._blk(r"a 2,000x speedup", r"a 1,000x speedup")))
+        self.assertEqual([b for b in self._blk("1000 samples", "1,000 samples") if "number" in b], [])
+
+    def test_dehedge_survives_a_compensating_hedge_elsewhere(self):
+        # a hedge added in an unrelated clause must not hide de-hedging of the real claim
+        blk = self._blk("we suggest X and our method reduces Y.", "we think X and our method may reduce Y.")
+        self.assertTrue(any("de-hedged" in b for b in blk))
+
+    def test_dropping_a_redundant_or_nonclaim_hedge_is_not_blocked(self):
+        self.assertEqual([b for b in self._blk("the method may reduce latency.",
+                                               "the method may possibly reduce latency.") if "de-hedged" in b], [])
+        self.assertEqual([b for b in self._blk("results are in Table 2.",
+                                               "results would be found in Table 2.") if "de-hedged" in b], [])
+
+    def test_math_whitespace_only_change_is_not_a_defect(self):
+        self.assertEqual([b for b in self._blk(r"see $a+b$", r"see $a + b$") if "math" in b], [])
+        self.assertTrue(any("math" in b for b in self._blk(r"see $a+c$", r"see $a+b$")))   # real change blocks
+
+    def test_reworded_disclosure_still_present_passes(self):
+        self.assertEqual([b for b in self._blk("We used an LLM to help write this.",
+                                               "We used generative AI to assist drafting.") if "disclosure" in b], [])
+
+    def test_strong_modal_inflection_is_not_a_false_positive(self):
+        self.assertEqual([b for b in self._blk("this ensure correctness", "this ensures correctness")
+                          if "strengthened" in b], [])
 
 
 class DisclosureDrafterTest(unittest.TestCase):

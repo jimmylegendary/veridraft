@@ -89,16 +89,25 @@ def naturalize(cfg: dict, ws: Path, source: str = "paper", force: bool = False) 
     (final / f"{out_stem}.gate.json").write_text(json.dumps(gate, indent=2, ensure_ascii=False),
                                                  encoding="utf-8")
 
+    kind = "patent" if src_stem == "patent" else "paper"     # naturalized patent gets the §112 check too
     pdf = translate_run._compile(final, out_stem, prefer_lualatex=False)
     render = translate_run._verify(final, out_stem) if pdf else ["naturalized version did not compile"]
-    mech = mechanical_verify.verify(str(final), tex_name=f"{out_stem}.tex", kind="paper") if pdf else {}
+    mech = mechanical_verify.verify(str(final), tex_name=f"{out_stem}.tex", kind=kind) if pdf else {}
 
-    # provenance: record the copyedit and that NO detector was targeted (append, never erase AI origin)
+    # provenance: record the copyedit and that NO detector was targeted (append, never erase AI origin).
+    # Honest 3-state disclosure: preserved / removed(blocked) / none-in-source (add one).
+    disc_orig = gate.get("disclosure_in_original", False)
+    if not disc_orig:
+        disc_state = "none-in-source (add an AI-use disclosure — see draft_disclosure())"
+    elif any("disclosure" in b for b in gate["blocking"]):
+        disc_state = "REMOVED by the copyedit (blocked)"
+    else:
+        disc_state = "preserved"
     (final / f"{out_stem}.provenance.json").write_text(json.dumps({
         "op": "naturalize", "source": f"{src_stem}.tex", "kind": "readability-copyedit",
-        "detector_targeted": False, "disclosure_preserved": not any("disclosure" in b for b in gate["blocking"]),
-        "note": "Readability copyedit; no AI-detector was read or optimized against. AI-use disclosure "
-                "is retained. The author remains responsible for all content."},
+        "detector_targeted": False, "disclosure": disc_state,
+        "note": "Readability copyedit; no AI-detector was read or optimized against. The author remains "
+                "responsible for all content and for disclosing AI assistance."},
         indent=2, ensure_ascii=False), encoding="utf-8")
 
     for b in gate["blocking"]:
